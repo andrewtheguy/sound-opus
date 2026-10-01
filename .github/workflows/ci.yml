@@ -1,0 +1,39 @@
+name: CI
+
+# Every target a user builds this crate for: Linux x86_64 and aarch64 for the
+# daemon and the gateway, macOS arm64 and Windows x86_64 for the gateway.
+# libopus is the prebuilt archive the build downloads; the tests decode with
+# ffmpeg, which each runner installs first.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm, macos-14, windows-2025]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install ffmpeg (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+      - name: Install ffmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
+      - name: Install ffmpeg (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg -y --no-progress
+      - run: rustup update stable && rustup default stable && rustup component add clippy
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test

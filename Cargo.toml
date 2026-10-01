@@ -1,0 +1,19 @@
+[package]
+name = "desktop-opus"
+version = "0.0.1"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/andrewtheguy/desktop-opus"
+description = "Opus for a desktop's sound, as wlshare and the remotex gateway both code it: one twenty-millisecond packet of every block, at a rate its owner moves, with the header a decoder is configured from"
+
+# The one place a desktop's sound is coded as Opus. Platform-independent and
+# dependency-light on purpose: the wlshare daemon and the remotex gateway both
+# build it, each pinned to a release tag of this repository, and a change to how
+# a desktop's sound is coded is made here once for both.
+[dependencies]
+thiserror = "2"
+# libopus, linked from a prebuilt static archive its sys crate downloads, so no
+# C is compiled and nothing is looked for at run time. The crate is `opus` 0.3.1
+# with that sys crate under it. The tag pins the crate; the archives are the
+# latest release's.
+opus = { package = "opus-prebuilt", git = "https://github.com/andrewtheguy/libopus-prebuilt", tag = "v1.6.1-20260906161304-8dd83e8" }
