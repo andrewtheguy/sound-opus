@@ -27,7 +27,9 @@
 //! The walk also says whether the link is *behind* right now, for a user with
 //! something free to shed while it is: a gateway that codes the sound itself
 //! sheds silence before its encoder, which drains a backlog by exactly that
-//! much and loses nothing anyone hears. A walk that is not adaptive — the
+//! much and loses nothing anyone hears. A sender that dropped sound it could
+//! not send tells the walk so ([`BitrateWalk::dropped`]), and the link is
+//! behind from that alone. A walk that is not adaptive — the
 //! operator asked for the rate held — hears nothing in any send, however long
 //! it blocked, holds the ceiling and never counts the link behind.
 //!
@@ -211,6 +213,18 @@ impl BitrateWalk {
     /// is not adaptive.
     pub fn behind(&self) -> bool {
         self.behind
+    }
+
+    /// The sender dropped sound it could not send: the link is behind by at
+    /// least the queue that overflowed, whatever its sends measured, and stays
+    /// so until a second of clear sends has followed. No verdict on the rate:
+    /// the send that blocked while the queue filled was one already.
+    pub fn dropped(&mut self) {
+        if !self.adaptive {
+            return;
+        }
+        self.behind = true;
+        self.clear = None;
     }
 
     /// A packet took `blocked` to send: time the socket, or the queue before
@@ -565,6 +579,25 @@ mod tests {
         assert!(!walk.behind());
     }
 
+    /// Sound the sender dropped puts the link behind without a send to say
+    /// so, and a clear send right after is no relief: the second of them
+    /// starts over from the drop, and the rate is not moved by it.
+    #[test]
+    fn dropped_sound_puts_the_link_behind_until_a_clear_second() {
+        let start = Instant::now();
+        let mut walk = BitrateWalk::new(96_000, true);
+        let (moved, at) = sends(&mut walk, 4, Duration::ZERO, start);
+        assert_eq!(moved, None);
+        walk.dropped();
+        assert!(walk.behind());
+        assert_eq!(walk.sent(Duration::ZERO, at + SEND), None);
+        assert!(walk.behind(), "one clear send after a drop is not a second of them");
+        let (moved, _) = sends(&mut walk, 5, Duration::ZERO, at + SEND);
+        assert_eq!(moved, None);
+        assert!(!walk.behind());
+        assert_eq!(walk.bitrate(), 96_000);
+    }
+
     /// A walk that is not adaptive hears nothing: the rate is the ceiling
     /// whatever the sends do, and the link is never behind.
     #[test]
@@ -572,6 +605,8 @@ mod tests {
         let start = Instant::now();
         let mut walk = BitrateWalk::new(96_000, false);
         assert!(!walk.adaptive());
+        walk.dropped();
+        assert!(!walk.behind());
         let (moved, at) = sends(&mut walk, 50, BLOCK_SEVERE, start);
         assert_eq!(moved, None);
         assert!(!walk.behind());
