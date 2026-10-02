@@ -142,8 +142,8 @@ pub struct BitrateWalk {
     adaptive: bool,
     /// The rate in force.
     bitrate: u32,
-    /// Whether the link is behind: a send blocked, and the link has not been
-    /// clear for [`RELIEF_SPAN`] since.
+    /// Whether the link is behind: a send blocked or the sender dropped
+    /// sound, and the link has not been clear for [`RELIEF_SPAN`] since.
     behind: bool,
     /// The last [`VERDICT_WINDOW`] verdicts, newest in the low bit, a set bit
     /// for a send the link was behind on.
@@ -207,8 +207,9 @@ impl BitrateWalk {
         self.bitrate
     }
 
-    /// Whether the link is behind right now: a send blocked, and the link has
-    /// not been clear for a second since. What a sender with something free to
+    /// Whether the link is behind right now: a send blocked or the sender
+    /// dropped sound ([`Self::dropped`]), and the link has not been clear for
+    /// a second since. What a sender with something free to
     /// shed — silence, before an encoder — sheds it on. Never on a walk that
     /// is not adaptive.
     pub fn behind(&self) -> bool {
@@ -586,12 +587,14 @@ mod tests {
     fn dropped_sound_puts_the_link_behind_until_a_clear_second() {
         let start = Instant::now();
         let mut walk = BitrateWalk::new(96_000, true);
-        let (moved, at) = sends(&mut walk, 4, Duration::ZERO, start);
+        // Clear sends spanning 800 ms before the drop: with the next, a second,
+        // which would be relief if the drop did not start the span over.
+        let (moved, at) = sends(&mut walk, 5, Duration::ZERO, start);
         assert_eq!(moved, None);
         walk.dropped();
         assert!(walk.behind());
         assert_eq!(walk.sent(Duration::ZERO, at + SEND), None);
-        assert!(walk.behind(), "one clear send after a drop is not a second of them");
+        assert!(walk.behind(), "the clear sends before a drop do not span it");
         let (moved, _) = sends(&mut walk, 5, Duration::ZERO, at + SEND);
         assert_eq!(moved, None);
         assert!(!walk.behind());
