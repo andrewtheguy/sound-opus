@@ -1,10 +1,10 @@
 [package]
 name = "sound-opus"
-version = "0.0.2"
+version = "0.0.3"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/andrewtheguy/sound-opus"
-description = "Opus for a desktop's sound, as wlshare and the remotex gateway both code it: one twenty-millisecond packet of every block, at a rate its owner moves, with the header a decoder is configured from"
+description = "Opus for a desktop's sound, as wlshare and the remotex gateway both code it: one twenty-millisecond packet of every block, at a rate its owner moves, the walk of that rate under what a link will bear, and the header a decoder is configured from"
 
 # The one place a desktop's sound is coded as Opus. Platform-independent and
 # dependency-light on purpose: the wlshare daemon and the remotex gateway both
