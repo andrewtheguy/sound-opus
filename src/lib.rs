@@ -11,6 +11,12 @@
 //!   may move while it runs.
 //! - **[`Stream::head`]** is the `OpusHead` a decoder is configured from,
 //!   which nothing sends: everything in it follows from the stream.
+//! - **[`walk::BitrateWalk`]** is the rate a link will bear, walked under the
+//!   configured one: down while sending blocks, back up while it keeps up, to
+//!   a floor fixed here, and whether the link is behind, for a sender with
+//!   silence to shed. Its one setting is whether it walks at all; the rate it
+//!   arrives at is moved on an encoder here or named to a remote that codes
+//!   its own.
 //!
 //! ## What a stream is
 //!
@@ -32,11 +38,13 @@
 //! compiled to build this crate and nothing is installed to run it.
 //!
 //! Nothing about a wire is here: how a packet is framed in a message, how the
-//! stream's shape is agreed, what a sample's bytes are and when the rate moves
-//! belong to the user.
+//! stream's shape is agreed, what a sample's bytes are and where a send's
+//! blocking is measured belong to the user.
 
 use opus::{Application, Bitrate, Channels};
 use thiserror::Error;
+
+pub mod walk;
 
 /// The rates Opus codes at, in Hz: the only ones a [`Stream`] may have.
 pub const RATES: [u32; 5] = [8_000, 12_000, 16_000, 24_000, 48_000];
