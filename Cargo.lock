@@ -35,7 +35,7 @@ dependencies = [
 
 [[package]]
 name = "sound-opus"
-version = "0.0.3"
+version = "0.0.4"
 dependencies = [
  "opus-prebuilt",
  "thiserror",
