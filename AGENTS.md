@@ -1,7 +1,7 @@
 # Repository instructions
 
 - Strict no backward-compatibility or legacy paths no matter what.
-- One crate, `desktop-opus`: the one place a desktop's sound is coded as Opus
+- One crate, `sound-opus`: the one place a desktop's sound is coded as Opus
   for the wlshare daemon and the remotex gateway, which each pin it by a release
   tag of this repository. How a block becomes a packet, what the encoder is set
   to, which rates it takes and what a decoder is told change here and reach them

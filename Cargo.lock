@@ -3,14 +3,6 @@
 version = 4
 
 [[package]]
-name = "desktop-opus"
-version = "0.0.1"
-dependencies = [
- "opus-prebuilt",
- "thiserror",
-]
-
-[[package]]
 name = "libopus-prebuilt-sys"
 version = "0.1.0"
 source = "git+https://github.com/andrewtheguy/libopus-prebuilt?tag=v1.6.1-20260906161304-8dd83e8#8dd83e865b4913df74b66199236346f9bfab2912"
@@ -39,6 +31,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001"
 dependencies = [
  "proc-macro2",
+]
+
+[[package]]
+name = "sound-opus"
+version = "0.0.2"
+dependencies = [
+ "opus-prebuilt",
+ "thiserror",
 ]
 
 [[package]]
