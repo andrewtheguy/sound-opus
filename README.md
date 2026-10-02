@@ -1,4 +1,4 @@
-# desktop-opus
+# sound-opus
 
 Opus for a desktop's sound, as [wlshare](https://github.com/andrewtheguy/wlshare)
 and the [remotex](https://github.com/andrewtheguy/remotex) gateway both code it.
@@ -18,5 +18,5 @@ so nothing of Opus is compiled to build and nothing is installed to run.
 Use it by release tag:
 
 ```toml
-desktop-opus = { git = "https://github.com/andrewtheguy/desktop-opus", tag = "v0.0.1" }
+sound-opus = { git = "https://github.com/andrewtheguy/sound-opus", tag = "v0.0.2" }
 ```
