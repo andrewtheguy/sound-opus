@@ -1,4 +1,4 @@
-//! Opus for a desktop's sound, as wlshare and the remotex gateway both code it.
+//! Opus for a desktop's sound, as wlshare and the zdesk gateway both code it.
 //!
 //! wlshare codes what its desktop plays as Opus and the gateway hands each
 //! packet to the browser as it came; the sound of a desktop that sends the

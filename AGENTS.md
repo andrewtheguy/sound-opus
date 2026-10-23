@@ -2,7 +2,7 @@
 
 - Strict no backward-compatibility or legacy paths no matter what.
 - One crate, `sound-opus`: the one place a desktop's sound is coded as Opus
-  for the wlshare daemon and the remotex gateway, which each pin it by a release
+  for the wlshare daemon and the zdesk gateway, which each pin it by a release
   tag of this repository. How a block becomes a packet, what the encoder is set
   to, which rates it takes, what a decoder is told and how the rate walks under
   what a link will bear change here and reach them as a pin bump: neither user
