@@ -1,7 +1,7 @@
 # sound-opus
 
 Opus for a desktop's sound, as [wlshare](https://github.com/andrewtheguy/wlshare)
-and the [remotex](https://github.com/andrewtheguy/remotex) gateway both code it.
+and the [zdesk](https://github.com/andrewtheguy/zdesk) gateway both code it.
 
 - `Stream`: what a stream is before any sound — the rate and the channels — and
   with them the block, the frames of samples in every packet, twenty
