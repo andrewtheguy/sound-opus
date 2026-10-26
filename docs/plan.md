@@ -68,7 +68,7 @@ whatever rate the walk is at, beside a VP9 encoder on the same desktop.
 - Made sounds, as sound-flac's bench makes them: a tone, music, speech,
   noise, silence; fifty blocks each.
 - Every run's log is kept under `docs/bench/` as JSON lines, and the run's
-  decoded output and any plots under
+  packets, as Ogg Opus files to listen to, and any plots under
   `/Volumes/dasdata/backup/sound-artifacts/opus/<date>/`, so the next run
   can set this one beside it as *the run before*.
 
@@ -91,8 +91,8 @@ examples build with `cargo build --examples` and nothing installed:
   its own, after a warm-up pass), bytes a block, and quality. Quality is
   measured through an independent decoder, ffmpeg's own Opus decoder (as the
   tests already do), against the source: a bark-band log-spectral distance
-  and segmental SNR, both stated as proxies, with the decoded files kept so
-  the user can listen. The grid is below. `tools/tables.py`, as sound-flac's,
+  and segmental SNR, both stated as proxies, with every cell's packets kept
+  as Ogg Opus files so the user can listen. The grid is below. `tools/tables.py`, as sound-flac's,
   makes the tables of `docs/benchmarks.md` from the log.
 - `examples/walk-sim.rs`: wlshare-vp9's `walk-sim` for sound, in virtual
   time, deterministic, runnable anywhere. It models the gateway's pipeline
