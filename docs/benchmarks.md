@@ -60,7 +60,7 @@ python3 -I tools/tables.py docs/bench/lab2.jsonl --against crate              # 
 python3 -I tools/tables.py docs/bench/lab2.jsonl --before before.jsonl        # with the run before
 ```
 
-## The run
+## The baseline
 
 `docs/bench/lab2.jsonl`, the baseline: the crate as released, v0.0.4
 (`015b983`), at 32, 48, 64, 96, 128, 160, 192, 256 and 320 kbit/s, the walk's
@@ -71,14 +71,14 @@ built by Rust 1.99.1, with ffmpeg 7.1.5. No figure from an earlier machine is
 compared against: every *a few percent of a core* in the crate's comments
 before this came from a desktop that was never quiet.
 
-## What it says
+### What it says
 
 **The cost is under one per cent of a core at every rate.** The mean block
 over the recordings is 102 to 154 µs, 0.51 % to 0.77 % of one core of this
 machine, and grows with the rate from 64 kbit/s up. The 99th-percentile
 block of the worst recording is 152 to 245 µs from 64 kbit/s up. The
 comment on `COMPLEXITY`, *a few percent of a core*, is several times what
-it is; what complexity 10 costs against less is item 2 of the plan.
+it is; what complexity 10 costs against less is [below](#complexity).
 
 **The lowest rates are the dearest.** At 32 and 48 kbit/s libopus codes
 speech as SILK or hybrid (none of Leviticus's packets are CELT, a tenth of
@@ -121,7 +121,146 @@ different block at every rate (Leviticus's at blocks 99, 139, 21127, 8350
 and 21968 in turn): the virtual machine's, not the encoder's. The 99th
 percentile is the encoder's figure; the worst is reported, not used.
 
-## The recordings together
+## Complexity
+
+Item 2 of the plan: libopus's effort, 0 to 10, against the crate's 10, the
+rest of the crate's settings unchanged. Two runs on lab2 as the baseline
+was made, the day after it: `docs/bench/lab2-complexity.jsonl`, every
+complexity at 64, 128 and 320 kbit/s, where every packet is CELT; and
+`docs/bench/lab2-complexity-silk.jsonl`, 5 and 7 to 10 at 32 and 48 kbit/s,
+where libopus codes speech as SILK and where complexity 9 and 10 can differ
+from 8 at all. The packets are under `2026-10-26/complexity/` and
+`2026-10-26/complexity-silk/`.
+
+```sh
+SETTINGS=$(seq -s, 0 10 | sed 's/\([0-9]*\)/c\1-audio-cvbr/g') RATES=64,128,320 ... bench
+SETTINGS=c5-audio-cvbr,c7-audio-cvbr,c8-audio-cvbr,c9-audio-cvbr,c10-audio-cvbr RATES=32,48 ... bench
+```
+
+`c10-audio-cvbr` is the crate's encoder, which the bench checks, and its
+cells came out as the baseline's to the byte and in every proxy, and each
+recording's mean block within 3.1 % of the baseline's.
+
+### What it says
+
+**Complexity 10 stays: what it costs is under one per cent of a core, and
+what less gives up is a choice libopus makes.** The steps that change
+anything are the ones libopus 1.6.1's source names:
+
+- *9 and 10 are 8.* At 64 kbit/s and up their packets are 8's, byte for
+  byte; at 32 and 48 they differ only in SILK's packets, and every proxy is
+  8's to 0.02 dB, at the same cost. The top two steps buy nothing measured
+  and cost nothing either.
+- *8 searches the stereo angle by rate and distortion* (`theta_rdo`,
+  `celt/bands.c:1618`). It costs 12 to 33 µs a block, at most a sixth
+  of a per cent of a core, and moves the proxies two ways: each channel's LSD
+  and the SegSNR are better on nearly every recording (SegSNR by up
+  to 0.3 dB), and the side's LSD is worse on the stereo recordings with a
+  quiet side, the Raven's 3.95 dB at 128 kbit/s against 4.60, the talk
+  over music's 2.69 against 3.28. libopus trades error in a quiet side for
+  error in the channels, by its own measure of what is heard; the side LSD
+  weighs a quiet side as much as a loud one.
+- *7 runs libopus's analysis* (`src/opus_encoder.c:1252`), which decides
+  the bandwidth and whether speech is coded as SILK. Under 7 every packet is
+  CELT and fullband at every rate measured. At 64 kbit/s the analysis codes 78 % of
+  the Fantasy's packets, 86 % of the station's and 99 % of the Goldberg
+  Aria's below fullband, and their LSD rises (the station's 0.66 dB to
+  2.42) while their SegSNR rises too (the Aria's 21.1 dB to 22.4): fewer
+  bands, each coded better. At 32 and 48 kbit/s it codes the readings as
+  SILK or hybrid: Leviticus's SegSNR is 14.9 dB against CELT's 11.7, JFK's
+  15.0 against 13.7, the Raven's 18.8 against 17.3, and their LSD worse,
+  1.68 dB against 1.32 for Leviticus. That is the costliest coding the
+  encoder does, 194 µs a block for Leviticus at 32 kbit/s against 62 at
+  complexity 5, still under one per cent of a core.
+- *5 adds CELT's pitch prefilter*, 12 µs a block, and +0.2 dB of SegSNR at
+  64 kbit/s; 5 and 6 make the same packets.
+- *0 to 4* lose a little more SegSNR each, 0.5 dB at 64 kbit/s from 10 to
+  0, and complexity 0 holds the packets nearest the mean (a 99th-percentile
+  packet of 348 bytes at 128 kbit/s against 481), which over a second, what
+  a link sees, is the same rate.
+
+Complexity 0 costs 37 to 68 µs a block against 10's 102 to 155: the most
+any setting saves is 0.43 % of one core, beside a VP9 encoder on the same
+desktop that takes tens of per cent. Where the proxies split, they do so
+because libopus chose a bandwidth, a coding mode or a stereo angle by what
+is heard; the proxies do not overrule it, and the saving is too small to
+listen against. The `COMPLEXITY` comment now says this, in place of *a few
+percent of a core*.
+
+### The tables
+
+The recordings together, a table for each rate, as `tools/tables.py` sets
+the settings side by side.
+
+#### 32 kbit/s
+
+| Setting | µs a block | Of one core | 99th, µs | Came to, kbit/s | Peak, kbit/s | 99th packet, bytes | LSD, dB | Side LSD, dB | SegSNR, dB | CELT | Fullband |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `c5-audio-cvbr` | 66.4 | 0.33% | 94.8 | 32.4 | 33.0 | 116 | 1.32 | 6.83 | 11.37 | 100% | 100% |
+| `c7-audio-cvbr` | 114 | 0.57% | 290 | 31.9 | 35.5 | 119 | 1.61 | 6.75 | 11.75 | 69% | 83% |
+| `c8-audio-cvbr` | 127 | 0.63% | 343 | 31.9 | 35.5 | 123 | 1.59 | 6.94 | 11.90 | 69% | 83% |
+| `c9-audio-cvbr` | 127 | 0.63% | 332 | 31.9 | 35.5 | 123 | 1.59 | 6.93 | 11.89 | 69% | 83% |
+| `c10-audio-cvbr` | 126 | 0.63% | 341 | 31.9 | 35.5 | 123 | 1.59 | 6.92 | 11.89 | 69% | 83% |
+
+#### 48 kbit/s
+
+| Setting | µs a block | Of one core | 99th, µs | Came to, kbit/s | Peak, kbit/s | 99th packet, bytes | LSD, dB | Side LSD, dB | SegSNR, dB | CELT | Fullband |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `c5-audio-cvbr` | 70.3 | 0.35% | 95.5 | 48.3 | 49.4 | 178 | 1.02 | 5.83 | 13.32 | 100% | 100% |
+| `c7-audio-cvbr` | 114 | 0.57% | 309 | 48.0 | 52.5 | 178 | 1.31 | 5.83 | 13.75 | 71% | 83% |
+| `c8-audio-cvbr` | 126 | 0.63% | 342 | 48.0 | 52.5 | 183 | 1.28 | 6.02 | 13.89 | 72% | 83% |
+| `c9-audio-cvbr` | 126 | 0.63% | 340 | 48.0 | 52.5 | 183 | 1.28 | 6.04 | 13.88 | 72% | 83% |
+| `c10-audio-cvbr` | 126 | 0.63% | 348 | 48.0 | 52.5 | 183 | 1.28 | 6.03 | 13.88 | 72% | 83% |
+
+#### 64 kbit/s
+
+| Setting | µs a block | Of one core | 99th, µs | Came to, kbit/s | Peak, kbit/s | 99th packet, bytes | LSD, dB | Side LSD, dB | SegSNR, dB | CELT | Fullband |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `c0-audio-cvbr` | 37.3 | 0.19% | 56.7 | 64.3 | 65.7 | 203 | 0.85 | 4.81 | 14.74 | 100% | 100% |
+| `c1-audio-cvbr` | 48.3 | 0.24% | 69.0 | 64.3 | 65.7 | 242 | 0.86 | 4.75 | 14.63 | 100% | 100% |
+| `c2-audio-cvbr` | 52.9 | 0.26% | 74.9 | 64.3 | 65.7 | 242 | 0.85 | 4.76 | 14.65 | 100% | 100% |
+| `c3-audio-cvbr` | 61.9 | 0.31% | 87.3 | 64.3 | 65.7 | 242 | 0.85 | 4.75 | 14.64 | 100% | 100% |
+| `c4-audio-cvbr` | 62.3 | 0.31% | 88.6 | 64.3 | 65.7 | 242 | 0.85 | 4.70 | 14.65 | 100% | 100% |
+| `c5-audio-cvbr` | 74.5 | 0.37% | 101 | 64.3 | 65.7 | 242 | 0.82 | 4.66 | 14.86 | 100% | 100% |
+| `c6-audio-cvbr` | 74.3 | 0.37% | 100 | 64.3 | 65.7 | 242 | 0.82 | 4.66 | 14.86 | 100% | 100% |
+| `c7-audio-cvbr` | 90.4 | 0.45% | 125 | 64.3 | 65.7 | 237 | 1.00 | 4.68 | 15.09 | 100% | 83% |
+| `c8-audio-cvbr` | 102 | 0.51% | 144 | 64.3 | 65.7 | 242 | 0.98 | 4.92 | 15.22 | 100% | 83% |
+| `c9-audio-cvbr` | 102 | 0.51% | 143 | 64.3 | 65.7 | 242 | 0.98 | 4.92 | 15.22 | 100% | 83% |
+| `c10-audio-cvbr` | 102 | 0.51% | 145 | 64.3 | 65.7 | 242 | 0.98 | 4.92 | 15.22 | 100% | 83% |
+
+#### 128 kbit/s
+
+| Setting | µs a block | Of one core | 99th, µs | Came to, kbit/s | Peak, kbit/s | 99th packet, bytes | LSD, dB | Side LSD, dB | SegSNR, dB | CELT | Fullband |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `c0-audio-cvbr` | 48.5 | 0.24% | 71.6 | 128.3 | 131.0 | 348 | 0.41 | 1.99 | 20.47 | 100% | 100% |
+| `c1-audio-cvbr` | 60.1 | 0.30% | 86.3 | 128.3 | 131.0 | 488 | 0.42 | 1.96 | 20.34 | 100% | 100% |
+| `c2-audio-cvbr` | 65.2 | 0.33% | 93.0 | 128.3 | 131.0 | 488 | 0.41 | 1.96 | 20.34 | 100% | 100% |
+| `c3-audio-cvbr` | 73.9 | 0.37% | 104 | 128.3 | 131.0 | 488 | 0.41 | 1.95 | 20.34 | 100% | 100% |
+| `c4-audio-cvbr` | 74.9 | 0.37% | 105 | 128.3 | 131.0 | 488 | 0.41 | 1.92 | 20.34 | 100% | 100% |
+| `c5-audio-cvbr` | 86.8 | 0.43% | 119 | 128.3 | 131.0 | 488 | 0.40 | 1.90 | 20.52 | 100% | 100% |
+| `c6-audio-cvbr` | 86.6 | 0.43% | 119 | 128.3 | 131.0 | 488 | 0.40 | 1.90 | 20.52 | 100% | 100% |
+| `c7-audio-cvbr` | 104 | 0.52% | 145 | 128.3 | 131.0 | 477 | 0.40 | 1.90 | 20.61 | 100% | 100% |
+| `c8-audio-cvbr` | 128 | 0.64% | 189 | 128.3 | 131.0 | 481 | 0.39 | 2.07 | 20.70 | 100% | 100% |
+| `c9-audio-cvbr` | 128 | 0.64% | 204 | 128.3 | 131.0 | 481 | 0.39 | 2.07 | 20.70 | 100% | 100% |
+| `c10-audio-cvbr` | 128 | 0.64% | 192 | 128.3 | 131.0 | 481 | 0.39 | 2.07 | 20.70 | 100% | 100% |
+
+#### 320 kbit/s
+
+| Setting | µs a block | Of one core | 99th, µs | Came to, kbit/s | Peak, kbit/s | 99th packet, bytes | LSD, dB | Side LSD, dB | SegSNR, dB | CELT | Fullband |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `c0-audio-cvbr` | 68.4 | 0.34% | 98.7 | 320.1 | 326.8 | 844 | 0.15 | 0.57 | 26.46 | 100% | 100% |
+| `c1-audio-cvbr` | 77.0 | 0.39% | 111 | 320.0 | 326.8 | 1218 | 0.15 | 0.58 | 26.45 | 100% | 100% |
+| `c2-audio-cvbr` | 82.2 | 0.41% | 118 | 320.0 | 326.8 | 1219 | 0.15 | 0.58 | 26.44 | 100% | 100% |
+| `c3-audio-cvbr` | 90.8 | 0.45% | 127 | 320.0 | 326.8 | 1218 | 0.15 | 0.58 | 26.44 | 100% | 100% |
+| `c4-audio-cvbr` | 91.6 | 0.46% | 130 | 320.0 | 326.8 | 1218 | 0.15 | 0.57 | 26.44 | 100% | 100% |
+| `c5-audio-cvbr` | 104 | 0.52% | 146 | 320.0 | 326.8 | 1217 | 0.15 | 0.56 | 26.57 | 100% | 100% |
+| `c6-audio-cvbr` | 104 | 0.52% | 145 | 320.0 | 326.8 | 1217 | 0.15 | 0.56 | 26.57 | 100% | 100% |
+| `c7-audio-cvbr` | 121 | 0.61% | 168 | 320.0 | 326.8 | 1202 | 0.15 | 0.55 | 26.64 | 100% | 100% |
+| `c8-audio-cvbr` | 154 | 0.77% | 230 | 320.0 | 326.8 | 1209 | 0.14 | 0.56 | 26.68 | 100% | 100% |
+| `c9-audio-cvbr` | 155 | 0.77% | 246 | 320.0 | 326.8 | 1209 | 0.14 | 0.56 | 26.68 | 100% | 100% |
+| `c10-audio-cvbr` | 155 | 0.77% | 236 | 320.0 | 326.8 | 1209 | 0.14 | 0.56 | 26.68 | 100% | 100% |
+
+## The baseline: the recordings together
 
 ### `crate`
 
@@ -141,7 +280,7 @@ percentile is the encoder's figure; the worst is reported, not used.
 | 256 | 150 | 0.75% | 225 | 1815 | 256.1 | 261.5 | 964 | 0.20 | 0.77 | 25.34 | 100% | 100% |
 | 320 | 154 | 0.77% | 245 | 1403 | 320.0 | 326.8 | 1209 | 0.14 | 0.56 | 26.68 | 100% | 100% |
 
-## The recordings one by one, `crate`
+## The baseline: the recordings one by one, `crate`
 
 #### µs a block, the least of the passes' mean
 
@@ -323,7 +462,7 @@ percentile is the encoder's figure; the worst is reported, not used.
 | Pink noise | 600 | 100% | 100% | 100% | 100% | 100% | 100% | 100% | 100% | 100% |
 | White noise | 600 | 100% | 100% | 100% | 100% | 100% | 100% | 100% | 100% | 100% |
 
-## The made sounds, `crate`
+## The baseline: the made sounds, `crate`
 
 Fifty blocks of each; the time is one block's, the least of five passes.
 

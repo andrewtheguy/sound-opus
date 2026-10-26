@@ -148,6 +148,22 @@ def together(data, setting):
     print()
 
 
+def side_by_side(data, settings):
+    rates = sorted({r for s in settings for r in data[s]})
+    print("## The settings side by side\n")
+    print("The recordings together, as in the tables of each setting below, a table\nfor each rate.\n")
+    for rate in rates:
+        print(f"### {rate} kbit/s\n")
+        print("| Setting | µs a block | Of one core | 99th, µs | Came to, kbit/s | Peak, kbit/s | 99th packet, bytes | LSD, dB | Side LSD, dB | SegSNR, dB | CELT | Fullband |")
+        print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+        for setting in settings:
+            s = summary(data[setting].get(rate, {}))
+            if s is None:
+                continue
+            print(f"| `{setting}` | {us(s['us'])} | {s['us'] / 20_000 * 100:.2f}% | {us(s['p99'])} | {s['kbit']:.1f} | {s['peak']:.1f} | {s['p99_bytes']} | {number(s['lsd'])} | {number(s['lsd_side'])} | {number(s['segsnr'])} | {s['celt'] * 100:.0f}% | {s['fb'] * 100:.0f}% |")
+        print()
+
+
 def against(data, setting, reference):
     rates = [r for r in sorted(data[setting]) if r in data[reference]]
     print(f"### `{setting}` against `{reference}`\n")
@@ -230,6 +246,8 @@ def main():
     data, settings = read(args[0])
     if reference is not None and reference not in data:
         sys.exit(f"--against {reference}: no such setting in {args[0]}")
+    if len(settings) > 1:
+        side_by_side(data, settings)
     print("## The recordings together\n")
     for setting in settings:
         together(data, setting)

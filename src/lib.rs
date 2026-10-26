@@ -71,9 +71,13 @@ pub const PRE_SKIP: u16 = 312;
 /// The bytes of an `OpusHead` for one or two channels.
 pub const HEAD_LEN: usize = 19;
 
-/// libopus's encoder effort, 0–10. The top: one stereo stream costs a few
-/// percent of a core either way, and the quality the effort buys matters most
-/// at a low rate, where every bit has to count.
+/// libopus's encoder effort, 0–10. The top, measured on a quiet machine
+/// (`docs/benchmarks.md`): one stereo stream costs 0.5 to 0.8 % of one core
+/// at every rate from 32 to 320 kbit/s, and complexity 0 would save at most
+/// 0.43 % of it. What less gives up is choices libopus makes by what is
+/// heard: from 7 its analysis picks the bandwidth and codes speech as SILK
+/// at 32 and 48 kbit/s, from 8 it picks the stereo angle by rate and
+/// distortion. 9 and 10 measure as 8, at its cost.
 const COMPLEXITY: i32 = 10;
 
 /// What a stream is before any sound.
