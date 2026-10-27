@@ -8,8 +8,16 @@
 #     cat OUT/*.jsonl > walk-sweep.jsonl
 #     python3 -I tools/walk.py --sweep walk-sweep.jsonl
 #
+# ONLY, a list of variants' names, runs those alone, `base` among them or not,
+# and WITH, a list of NAME=VALUE pairs, is set on every variant first, so a
+# round's items are measured one on top of another with the rest off:
+#
+#     ONLY="base noclimb climb500" WITH="DRAIN_FRACTION=1" tools/walk-sweep.sh OUT
+#
 # The recordings are tools/walk-cases.sh's, under tmp/samples or SAMPLES.
 set -eu
+only=${ONLY:-}
+with=${WITH:-}
 repo=$(cd "$(dirname "$0")/.." && pwd)
 mkdir -p "$1/bin"
 out=$(cd "$1" && pwd)
@@ -25,14 +33,20 @@ rsync -a --delete --exclude target --exclude .git ${inside:+--exclude "$inside"}
 variant() {
     name=$1
     shift
+    if [ -n "$only" ]; then
+        case " $only " in
+        *" $name "*) ;;
+        *) return ;;
+        esac
+    fi
     cp "$repo/src/walk.rs" "$out/crate/src/walk.rs"
-    for pair in "$@"; do
+    for pair in $with "$@"; do
         case $pair in
         s/*) perl -pi -e "$pair" "$out/crate/src/walk.rs" ;;
         *) perl -pi -e "s/^((?:pub )?const ${pair%%=*}: [^=]*= ).*;/\${1}${pair#*=};/" "$out/crate/src/walk.rs" ;;
         esac
     done
-    if [ $# -gt 0 ] && cmp -s "$repo/src/walk.rs" "$out/crate/src/walk.rs"; then
+    if [ $# -gt 0 ] && [ -z "$with" ] && cmp -s "$repo/src/walk.rs" "$out/crate/src/walk.rs"; then
         echo "$name changed nothing" >&2
         exit 1
     fi
@@ -73,12 +87,36 @@ variant hold30 REFUSAL_HOLD="$(secs 30)"
 variant together ADJUST_COOLDOWN="$(secs 1)" CLEAR_SPAN="$(secs 5)" REFUSAL_HOLD="$(secs 30)"
 variant floor32 BITRATE_FLOOR=32_000
 variant floor16 BITRATE_FLOOR=16_000
+# The climb: a span as long as the clear one is no climb at all.
+variant noclimb CLIMB_SPAN="$(secs 3)"
+variant climb500 CLIMB_SPAN="$(ms 500)"
+variant climb1500 CLIMB_SPAN="$(ms 1500)"
+variant idle10 LAG_IDLE="$(ms 10)"
+variant idle25 LAG_IDLE="$(ms 25)"
+# A fraction this large is sound that is never quiet.
+variant noquiet QUIET_FRACTION=1_000_000
+variant quiet2 QUIET_FRACTION=2
+variant quiet8 QUIET_FRACTION=8
+# A heavy cooldown as long as the cooldown is none.
+variant noheavy HEAVY_COOLDOWN="$(secs 2)"
+variant heavy500 HEAVY_COOLDOWN="$(ms 500)"
+variant heavy1500 HEAVY_COOLDOWN="$(ms 1500)"
+# A fraction of one is a lag that never counts as draining.
+variant nodrain DRAIN_FRACTION=1
+variant drain3 DRAIN_FRACTION=3
+variant drain10 DRAIN_FRACTION=10
+variant nospacing PING_SPACING="$(ms 0)"
+variant spacing100 PING_SPACING="$(ms 100)"
+variant spacing180 PING_SPACING="$(ms 180)"
+# Every item of this round off: the walk as v0.0.5 had it.
+variant v0.0.5 CLIMB_SPAN="$(secs 3)" HEAVY_COOLDOWN="$(secs 2)" DRAIN_FRACTION=1 PING_SPACING="$(ms 0)"
 
 # Four at a time.
 cd "$repo"
 n=0
 for bin in "$out"/bin/*; do
     name=$(basename "$bin")
+    [ -n "$only" ] && case " $only " in *" $name "*) ;; *) continue ;; esac
     SIM=$bin tools/walk-cases.sh | sed "s/^{/{\"variant\":\"$name\",/" > "$out/$name.jsonl" &
     n=$((n + 1))
     [ $((n % 4)) -eq 0 ] && wait

@@ -364,6 +364,58 @@ The rate is back at 192 kbit/s 25 to 30 s after the route grew, for 0.4 to
 rather than 200: 8% more is lost there, heard 13% sooner at the 95th
 percentile summed, with 7% less stalled. Nothing else moves.
 
+## After wlshare's walk
+
+wlshare's quality walk, the shape this one is, took three rules after
+v0.0.5, each measured on its own simulator over its kept captures: it
+climbs back sooner on a link that shows nothing queued, steps down again
+sooner while the link is far behind, and waits while the queue a step left
+drains rather than stepping on it. Each was tried here the same way, on the
+cases above with zdesk's ceiling and batching, against the walk as v0.0.5
+had it (`bench/walk.jsonl`), one on top of the one before; with them a
+fourth of this walk's own, fewer pings on a passed stream. `tools/walk-sweep.sh`
+ran each with its constant moved one way and the other, and the figures
+are over every case and over those where a link narrowed, swung or dipped,
+as the constants' table below reads them.
+
+### A climb on a link with nothing queued
+
+A step up the link took, with no hearing since that measured more than
+15 ms of lag (`LAG_IDLE`), is followed by the next after a second of clear
+hearings (`CLIMB_SPAN`) rather than three: a link that has recovered shows
+nothing queued, where one that is only keeping up shows a little on most
+pongs and climbs at the pace it did.
+
+Alone, it lost 61% more sound where a link narrowed, swung or dipped
+(`bench/walk-climb.jsonl`, `noquiet`): the speech is paused four seconds in
+every ten, a paused desktop's packets are three bytes whatever the rate, and
+a pong behind them is as clear as any. The climb stepped the rate past a
+link narrowed to 100 kbit/s in every pause, 121 to 169 kbit/s in 1.3 s, and
+the sound that resumed was skipped, 3.2 s of the minute against 0.9. So
+zdesk tells the walk what every batch carried, its packets and bytes
+(`sent`), and a pong behind sound that came to under half the rate's share
+(`QUIET_FRACTION`) is clear but no hearing with nothing queued: it counts
+towards a clear span as before, and never towards a climb. Under a quarter
+or an eighth instead, the floor case on wlshare's speech lost 10.5 s against
+8.3.
+
+With that, against the walk before it:
+
+- Under the dips, the rate is 155 to 163 kbit/s where it sat at 103 to
+  151, back at the ceiling within 7 s of each dip rather than never; what
+  it costs is 0.2 s more sound lost and 0.3 s more stalled on music over
+  RDP, the probe past a dip's refusal.
+- On the longer route the rate is back 9 to 14 kbit/s higher, 138 to 147.
+- Over every case the rate is 2% higher for 0.4% more sound lost and 7%
+  more moves; where a link narrowed, swung or dipped, 3% higher for 5% more
+  lost and 5% more stalled, the narrowest link's music over wlshare heard
+  90 ms later at the 95th percentile. A link that recovers moves no sooner:
+  the refusal of its narrow stretch holds, and the pongs after it carry a
+  little lag.
+- A span of 500 ms moves the rate 16% more often for the same rate and
+  9% more lost where a link narrowed; 1.5 s gains 6 kbit/s less under the
+  dips. An idle lag of 10 or 25 ms measures as 15.
+
 ## The constants
 
 `tools/walk-sweep.sh` builds the crate with each constant moved one way and
@@ -456,7 +508,9 @@ The walk is the users' to drive, and zdesk drives it differently now:
 - **zdesk.** The audio socket's task writes a ping ahead of a batch when
   `ping` says to, and at once after a pong while `skipping`; tells the walk
   `pong` for a pong of its own (the heartbeat's pings carry another
-  payload), `tick` at `next_tick`, and `sent` with how long a send blocked;
+  payload), `tick` at `next_tick`, and `sent` for every batch with how long
+  its send blocked and what it carried, its packets and bytes, which says
+  whether the sound behind the next ping was quiet;
   and publishes `skipping` beside `behind` for the side that reads the
   queue, which drops what comes while it is set: an RDP buffer before the
   encoder, a passed unit before the socket with the gap marked. That task
