@@ -1,7 +1,7 @@
 # What the encoder was measured at
 
 The figures the encoder's settings and the walk's constants are decided on,
-taken as [plan.md](plan.md) lays out: on a quiet machine, alone, over the
+taken on a quiet machine, alone, over the
 recordings sound-flac's benchmarks are made on, with every run's log kept.
 What the crate is, is in the module docs of `src/lib.rs` and `src/walk.rs`.
 
@@ -112,8 +112,8 @@ kbit/s and below it also codes some recordings below fullband: 2 % of the
 Goldberg Aria's packets, 22 % of the Fantasy's and 14 % of the station's are
 fullband; from 96 kbit/s every packet is. SegSNR rises by one to two dB a
 step all the way to 320 kbit/s; above 192 the proxies keep improving but by
-little, which is where item 5 asks whether zdesk's 320 kbit/s is worth its
-cost on a link.
+little, which is where rate against quality (below) asks whether zdesk's
+320 kbit/s is worth its cost on a link.
 
 **The worst block is the machine's.** The least over three passes of each
 pass's worst block is still 1.0 to 2.1 ms on the long recordings, at a
@@ -123,7 +123,7 @@ percentile is the encoder's figure; the worst is reported, not used.
 
 ## Complexity
 
-Item 2 of the plan: libopus's effort, 0 to 10, against the crate's 10, the
+libopus's effort, 0 to 10, against the crate's 10, the
 rest of the crate's settings unchanged. Two runs on lab2 as the baseline
 was made, the day after it: `docs/bench/lab2-complexity.jsonl`, every
 complexity at 64, 128 and 320 kbit/s, where every packet is CELT; and
@@ -262,7 +262,7 @@ the settings side by side.
 
 ## Application
 
-Item 3: `OPUS_APPLICATION_AUDIO`, the crate's, against
+`OPUS_APPLICATION_AUDIO`, the crate's, against
 `OPUS_APPLICATION_RESTRICTED_LOWDELAY`, both at complexity 10 and
 constrained VBR, at every rate of the baseline, in one run on lab2:
 `docs/bench/lab2-application.jsonl`, the packets under
@@ -343,7 +343,7 @@ less the other.
 
 ## Rate control
 
-Item 4: constrained VBR, the crate's, against unconstrained VBR and CBR,
+Constrained VBR, the crate's, against unconstrained VBR and CBR,
 at complexity 10 and `AUDIO`, at every rate of the baseline, in one run on
 lab2: `docs/bench/lab2-vbr.jsonl`, the packets under `2026-10-26/vbr/`.
 
@@ -456,10 +456,10 @@ less the other.
 
 ## Rate against quality
 
-Item 5, from the baseline, since items 2 to 4 changed no setting: where
-the proxies say the stereo stream stops improving, which is what zdesk's
-ceiling of 320 kbit/s (`AUDIO_BITRATE_KBPS`, chosen to match a Mac's
-AAC-ELD) rests on. The means over the recordings, and what each step up
+From the baseline, since complexity, application and rate control
+changed no setting: where the proxies say the stereo stream stops
+improving, which is what zdesk's ceiling of 320 kbit/s
+(`AUDIO_BITRATE_KBPS`, chosen to match a Mac's AAC-ELD) rests on. The means over the recordings, and what each step up
 bought:
 
 | Rate, kbit/s | LSD, dB | Step | Side LSD, dB | Step | SegSNR, dB | Step |
@@ -493,11 +493,11 @@ every recording at 160, 192, 256 and 320 kbit/s, under
 `2026-10-26/baseline/opus/crate-<kbit>/` on the Mac. The cost is no reason
 either way: 139 µs a block at 160 kbit/s against 155 at 320. Whether a
 lower ceiling helps the walk, which starts from it and has further to come
-down from 320 on a link that narrows, is for the simulator (item 6).
+down from 320 on a link that narrows, is for the simulator (`walk.md`).
 
 ## The floor
 
-Item 7: where the walk stops giving rate up, which was 32 kbit/s on the word
+Where the walk stops giving rate up, which was 32 kbit/s on the word
 that below it libopus narrows the band and folds the stereo. The crate at
 12, 16, 24 and 32 kbit/s over the recordings, on lab2 as the runs above
 (`bench/lab2-floor.jsonl`, the packets under `2026-10-26/floor/`):

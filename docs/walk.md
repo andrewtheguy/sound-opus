@@ -199,9 +199,8 @@ On the same cases (`bench/walk-lag.jsonl`, the right column):
   over RDP and 0.2 s over wlshare, with 0.5 to 1.8 s of stalls, against 3.2
   to 5.1 s and 8.5 to 18 s.
 - wlshare's stream walks like RDP's, and the broadcast queue drops nothing
-  in any case: the change the plan had in mind for a passed stream's lag
-  reaching the walk is not needed, and `--passed-lag` measures the same
-  (`bench/walk-passed-lag.jsonl`).
+  in any case: a passed stream's lag reaching the walk is not needed,
+  and `--passed-lag` measures the same (`bench/walk-passed-lag.jsonl`).
 - Under the floor the sound is 0.7 to 1.1 s late at the 95th percentile
   rather than 40 to 73: what the link cannot carry is skipped, 21 to 33 s of
   the minute, where it was dropped by the queue after being heard late.
