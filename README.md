@@ -11,10 +11,13 @@ and the [zdesk](https://github.com/andrewtheguy/zdesk) gateway both code it.
 - `Stream::head`: the `OpusHead` a decoder is configured from, which nothing
   sends: everything in it follows from the stream.
 - `walk::BitrateWalk`: the rate a link will bear, walked under the configured
-  one — down while sending blocks, back up while the link keeps up, to a floor
-  fixed here — and whether the link is behind, for a sender with silence to
-  shed. Its one setting is whether it walks at all. The same walk for a stream
-  coded by the gateway and for wlshare's, which the gateway tells the rate.
+  one — down while the link lags, as a ping on the sound's own connection
+  measures it, back up while it keeps up, to a floor fixed here — whether the
+  link is behind, for a sender with silence to shed, and whether to skip
+  sound so what is heard comes back to live. Its one setting is whether it
+  walks at all. The same walk for a stream coded by the gateway and for
+  wlshare's, which the gateway tells the rate. `docs/walk.md` has how it was
+  settled, on `examples/walk-sim.rs`.
 
 libopus is linked statically, from the prebuilt archive
 [libopus-prebuilt](https://github.com/andrewtheguy/libopus-prebuilt) publishes,

@@ -7,11 +7,9 @@
 //! ```text
 //! walk-sim RECORDING [--source rdp|wlshare] [--link KBPS[,KBPS@SECS...]]
 //!          [--rtt MS] [--jitter MS] [--delay MS[,MS@SECS...]] [--queue MS]
-//!          [--sndbuf KB]
-//!          [--signal blocked|lag|both] [--overdue MS] [--skip-late MS] [--hop MS]
-//!          [--hop-link MBPS] [--burst KB@SECS[,...]] [--passed-lag]
-//!          [--ceiling KBPS] [--held] [--secs S] [--pause S,EVERY]
-//!          [--case NAME] [--timeline FILE]
+//!          [--sndbuf KB] [--hop MS] [--hop-link MBPS] [--burst KB@SECS[,...]]
+//!          [--passed-lag] [--ceiling KBPS] [--held] [--secs S]
+//!          [--pause S,EVERY] [--case NAME] [--timeline FILE]
 //! ```
 //!
 //! `--source` is where the sound comes from: `rdp`, an RDP host's wave
@@ -34,17 +32,11 @@
 //! wakes a blocked writer when it is down to two thirds of that, as Linux
 //! does.
 //!
-//! `--signal` is what the walk hears: `blocked`, how long each batch's send
-//! waited, as zdesk measures it; `lag`, how long a ping written ahead of a
-//! batch took to come back over the least any took, one ping in flight; or
-//! `both`, at each pong the longer of its lag and the longest send since the
-//! last. A ping out for `--overdue` ms past the least round trip, and every
-//! `--overdue` ms after, is heard as lagging by that much at least, without
-//! waiting for its pong behind the queue; 0, the default, waits.
-//! `--skip-late` drops, before the encoder, as much sound as a lag of that
-//! much or more says is queued, so what is heard comes back to live. All but
-//! `blocked` are the simulation's, around the walk: what the walk would hear
-//! if it were told.
+//! The walk hears what zdesk would tell it: a ping written ahead of a batch
+//! when none is in flight, its pong, the ping overdue whenever the walk asks
+//! to be told ([`BitrateWalk::next_tick`]), and how long the batch's send
+//! blocked; and while the walk is skipping, the pump drops what comes and the
+//! writer pings again as each pong is back.
 //!
 //! `--ceiling` is the rate the walk starts at and never passes, 320 kbit/s as
 //! zdesk sets it; `--held` holds it there. `--secs` plays that much of the
@@ -57,7 +49,8 @@
 //! congestion window is what the bottleneck and its buffer hold, so the
 //! buffer fills before the socket does. The gateway is zdesk's: a broadcast
 //! queue sixteen deep that drops its oldest, the encoder or the passed units
-//! behind it, silence shed while the walk says the link is behind, a channel
+//! behind it, sound skipped while the walk asks for it and silence shed
+//! while it says the link is behind, a channel
 //! two deep to the socket's writer, one batch a WebSocket message. The
 //! browser plays each packet back to back from the moment it has it,
 //! trimming any lead past 300 ms. What a run's line says is the rate the
@@ -235,17 +228,10 @@ impl Input {
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
-enum Signal {
-    Blocked,
-    Lag,
-    Both,
-}
-
 /// The walk as zdesk runs it, with what it publishes: the rate it asks for,
 /// and for wlshare when the ask reaches it; whether the link is behind, which
 /// the shedding reads; and whether the broadcast queue lagged since the walk
-/// last heard.
+/// was last told anything.
 struct Walking {
     walk: BitrateWalk,
     base: Instant,
@@ -259,18 +245,21 @@ struct Walking {
     first_down: Option<Duration>,
     /// Every rate the walk moved to, and when.
     path: Vec<(Duration, u32)>,
-    /// What the walk last heard.
-    last: Duration,
 }
 
 impl Walking {
-    /// A send, or a ping's lag: `wait` long.
-    fn hear(&mut self, wait: Duration, now: Duration) {
+    /// The walk, told first of a queue that lagged, as zdesk tells it before
+    /// anything else.
+    fn walk(&mut self) -> &mut BitrateWalk {
         if std::mem::take(&mut self.lagged) {
             self.walk.dropped();
         }
-        self.last = wait;
-        if let Some(rate) = self.walk.sent(wait, self.base + now) {
+        &mut self.walk
+    }
+
+    /// What the walk said at `now`: the rate it moved to, if it moved.
+    fn heard(&mut self, moved: Option<u32>, now: Duration) {
+        if let Some(rate) = moved {
             self.moves += 1;
             if rate < self.desired {
                 self.downs += 1;
@@ -283,8 +272,8 @@ impl Walking {
         self.behind = self.walk.behind();
     }
 
-    /// zdesk's `note_lag`: behind from now, and the walk told at its next
-    /// hearing.
+    /// zdesk's `note_lag`: behind from now, and the walk told when it is
+    /// next told anything.
     fn lag(&mut self) {
         self.behind = true;
         self.lagged = true;
@@ -440,8 +429,8 @@ fn main() -> Result<(), Error> {
     let mut path = None;
     let mut link_arg = "1000".to_string();
     let (mut rtt, mut jitter, mut queue, mut sndbuf, mut hop, mut hop_link) = (40.0, 0.0, 100.0, 85.0, 1.0, 1000.0);
-    let (mut rdp, mut signal, mut passed_lag, mut held) = (true, Signal::Blocked, false, false);
-    let (mut ceiling, mut secs, mut pause, mut skip_late, mut overdue) = (320.0, None, None, None, Duration::ZERO);
+    let (mut rdp, mut passed_lag, mut held) = (true, false, false);
+    let (mut ceiling, mut secs, mut pause) = (320.0, None, None);
     let mut delay_arg = "0".to_string();
     let mut bursts: Vec<(Duration, u64)> = Vec::new();
     let (mut case, mut timeline) = (String::new(), None);
@@ -456,21 +445,11 @@ fn main() -> Result<(), Error> {
                     other => return Err(format!("--source {other}: rdp or wlshare").into()),
                 }
             }
-            "--signal" => {
-                signal = match value()?.as_str() {
-                    "blocked" => Signal::Blocked,
-                    "lag" => Signal::Lag,
-                    "both" => Signal::Both,
-                    other => return Err(format!("--signal {other}: blocked, lag or both").into()),
-                }
-            }
             "--link" => link_arg = value()?,
             "--rtt" => rtt = number(&arg, &value()?)?,
             "--jitter" => jitter = number(&arg, &value()?)?,
             "--queue" => queue = number(&arg, &value()?)?,
             "--sndbuf" => sndbuf = number(&arg, &value()?)?,
-            "--skip-late" => skip_late = Some(ms(number(&arg, &value()?)?)),
-            "--overdue" => overdue = ms(number(&arg, &value()?)?),
             "--delay" => delay_arg = value()?,
             "--hop" => hop = number(&arg, &value()?)?,
             "--hop-link" => hop_link = number(&arg, &value()?)?,
@@ -550,8 +529,8 @@ fn main() -> Result<(), Error> {
         downs: 0,
         first_down: None,
         path: Vec::new(),
-        last: Duration::ZERO,
     };
+    let base = walking.base;
     // The one encoder: the gateway's for RDP, wlshare's for its units.
     let mut encoder = Encoder::new(STEREO, ceiling)?;
     let mut coded_at = ceiling;
@@ -563,22 +542,15 @@ fn main() -> Result<(), Error> {
     let mut pump: Option<(Duration, Vec<Packet>)> = None;
     // The writer, busy until when.
     let mut writing: Option<Duration> = None;
-    // The ping in flight: when it went and when its pong is back; the least
-    // round trip any took; the longest send since the last pong.
-    let mut ping: Option<(Duration, Duration)> = None;
-    let mut least_trip = Duration::MAX;
-    let mut longest_send = Duration::ZERO;
-    // When the walk last heard of the ping in flight before its pong.
-    let mut heard_overdue: Option<Duration> = None;
-    // Sound still to skip, as the last lag said.
-    let mut skip = Duration::ZERO;
+    // When the pong of the ping in flight is back.
+    let mut pong: Option<Duration> = None;
     let mut browser = Browser::default();
     let mut out: Vec<u8> = Vec::new();
     let (mut shed, mut skipped) = (Duration::ZERO, Duration::ZERO);
     let mut rates_coded: Vec<f64> = Vec::new();
     let (mut behind_for, mut behind_since) = (Duration::ZERO, None::<Duration>);
     if let Some(t) = &mut timeline {
-        writeln!(t, "t_ms,packets,bytes,kbit,heard_ms,behind,taken_ms,arrived_ms")?;
+        writeln!(t, "t_ms,packets,bytes,kbit,behind,taken_ms,arrived_ms")?;
     }
 
     // When the source next yields: an RDP buffer when its last frame is in,
@@ -592,33 +564,24 @@ fn main() -> Result<(), Error> {
 
     let mut now = Duration::ZERO;
     loop {
-        // The walk hears a pong.
-        if let Some((went, back)) = ping
-            && back <= now
-        {
-            ping = None;
-            heard_overdue = None;
-            least_trip = least_trip.min(back - went);
-            let lag = back - went - least_trip;
-            if skip_late.is_some_and(|late| lag >= late) && skip.is_zero() {
-                skip = lag;
+        // The walk hears a pong, or a ping overdue.
+        if let Some(back) = pong.filter(|back| *back <= now) {
+            pong = None;
+            let moved = walking.walk().pong(base + back);
+            walking.heard(moved, back);
+            // Skipping, no batch comes to write a ping ahead of: the writer
+            // writes one at once, after anything it is writing.
+            let at = writing.map_or(now, |until| until.max(now));
+            if walking.walk.skipping() && walking.walk().ping(base + at) {
+                let (taken, exit) = socket.write(at, PING_BYTES);
+                browser.arrived = browser.arrived.max(exit + rtt / 2 + socket.delay_at(exit) + wobble());
+                pong = Some(browser.arrived + rtt / 2);
+                writing = Some(taken);
             }
-            let wait = if signal == Signal::Both { lag.max(std::mem::take(&mut longest_send)) } else { lag };
-            walking.hear(wait, back);
         }
-        // Or of a ping still out, overdue.
-        if let Some((went, _)) = ping
-            && !overdue.is_zero()
-            && now.saturating_sub(went).saturating_sub(least_trip) >= overdue
-            && heard_overdue.is_none_or(|at| now - at >= overdue)
-        {
-            heard_overdue = Some(now);
-            let lag = now - went - least_trip.min(now - went);
-            if skip_late.is_some_and(|late| lag >= late) && skip.is_zero() {
-                skip = lag;
-            }
-            let wait = if signal == Signal::Both { lag.max(std::mem::take(&mut longest_send)) } else { lag };
-            walking.hear(wait, now);
+        if walking.walk.next_tick().is_some_and(|due| due <= base + now) {
+            let moved = walking.walk().tick(base + now);
+            walking.heard(moved, now);
         }
         // The source.
         while source_at(produced).is_some_and(|at| at <= now) {
@@ -663,10 +626,10 @@ fn main() -> Result<(), Error> {
             {
                 progress = true;
                 let mut at = now;
-                if signal != Signal::Blocked && ping.is_none() {
+                if walking.walk().ping(base + at) {
                     let (taken, exit) = socket.write(at, PING_BYTES);
                     browser.arrived = browser.arrived.max(exit + rtt / 2 + socket.delay_at(exit) + wobble());
-                    ping = Some((at, browser.arrived + rtt / 2));
+                    pong = Some(browser.arrived + rtt / 2);
                     at = taken;
                 }
                 let bytes = 4 + packets.iter().map(|p| 2 + p.bytes as u64).sum::<u64>() + MESSAGE_OVERHEAD;
@@ -679,11 +642,10 @@ fn main() -> Result<(), Error> {
                 if let Some(t) = &mut timeline {
                     writeln!(
                         t,
-                        "{:.1},{},{bytes},{},{:.1},{},{:.1},{:.1}",
+                        "{:.1},{},{bytes},{},{},{:.1},{:.1}",
                         now.as_secs_f64() * 1e3,
                         packets.len(),
                         packets[0].rate / 1000,
-                        walking.last.as_secs_f64() * 1e3,
                         u8::from(walking.behind),
                         taken.as_secs_f64() * 1e3,
                         browser.arrived.as_secs_f64() * 1e3,
@@ -691,10 +653,7 @@ fn main() -> Result<(), Error> {
                 }
                 if let Some((since, batch)) = pump.take() {
                     channel.push_back(batch);
-                    longest_send = longest_send.max(now - since);
-                    if signal == Signal::Blocked {
-                        walking.hear(now - since, now);
-                    }
+                    walking.walk().sent(now - since);
                 }
             }
             // The pump reads the next buffer or units, and sends the packets.
@@ -703,10 +662,8 @@ fn main() -> Result<(), Error> {
             {
                 progress = true;
                 let mut batch = Vec::new();
-                if !skip.is_zero() {
-                    let length = input.length();
-                    skip = skip.saturating_sub(length);
-                    skipped += length;
+                if walking.walk.skipping() {
+                    skipped += input.length();
                     broadcast.joined = false;
                 } else {
                     match input {
@@ -743,9 +700,6 @@ fn main() -> Result<(), Error> {
                 if !batch.is_empty() {
                     if channel.len() < CHANNEL_DEPTH {
                         channel.push_back(batch);
-                        if signal == Signal::Blocked {
-                            walking.hear(Duration::ZERO, now);
-                        }
                     } else {
                         pump = Some((now, batch));
                     }
@@ -764,8 +718,8 @@ fn main() -> Result<(), Error> {
             _ => {}
         }
         // The next thing to happen.
-        let due = ping.filter(|_| !overdue.is_zero() && least_trip < Duration::MAX).map(|(went, _)| heard_overdue.map_or(went + least_trip + overdue, |at| at + overdue));
-        let next = [source_at(produced), on_hop.front().map(|(t, _)| *t), writing, ping.map(|(_, back)| back), due].into_iter().flatten().filter(|t| *t > now).min();
+        let due = walking.walk.next_tick().map(|due| due.saturating_duration_since(base));
+        let next = [source_at(produced), on_hop.front().map(|(t, _)| *t), writing, pong, due].into_iter().flatten().filter(|t| *t > now).min();
         match next {
             Some(t) => now = t,
             None if broadcast.queue.is_empty() && channel.is_empty() && pump.is_none() => break,
@@ -777,7 +731,7 @@ fn main() -> Result<(), Error> {
     }
     let path = walking.path.iter().map(|(t, rate)| format!("{}@{:.1}", rate / 1000, t.as_secs_f64())).collect::<Vec<_>>().join(" ");
     println!(
-        "{{\"case\":{},\"recording\":{},\"source\":\"{}\",\"link\":\"{link_arg}\",\"rtt\":{},\"jitter\":{},\"queue\":{},\"delay\":\"{delay_arg}\",\"sndbuf\":{sndbuf},\"signal\":\"{}\",\"overdue\":{},\"skip_late\":{},\"passed_lag\":{passed_lag},\"held\":{held},\"ceiling\":{},\"pause\":{},\"secs\":{:.1},\
+        "{{\"case\":{},\"recording\":{},\"source\":\"{}\",\"link\":\"{link_arg}\",\"rtt\":{},\"jitter\":{},\"queue\":{},\"delay\":\"{delay_arg}\",\"sndbuf\":{sndbuf},\"passed_lag\":{passed_lag},\"held\":{held},\"ceiling\":{},\"pause\":{},\"secs\":{:.1},\
 \"rate_mean\":{:.1},\"rate_p10\":{:.0},\"late_p50\":{:.0},\"late_p95\":{:.0},\"late_max\":{:.0},\"heard\":{:.2},\"dropped\":{:.2},\"gaps\":{},\"skipped\":{:.2},\"trimmed\":{:.2},\"shed\":{:.2},\"stalls\":{},\"stalled\":{:.2},\"behind\":{:.2},\"moves\":{},\"downs\":{},\"first_down\":{},\"path\":{}}}",
         json(&case),
         json(&name),
@@ -785,13 +739,6 @@ fn main() -> Result<(), Error> {
         rtt.as_millis(),
         jitter,
         queue,
-        match signal {
-            Signal::Blocked => "blocked",
-            Signal::Lag => "lag",
-            Signal::Both => "both",
-        },
-        overdue.as_millis(),
-        skip_late.map_or("null".into(), |late| late.as_millis().to_string()),
         ceiling / 1000,
         pause.map_or("null".into(), |(s, every)| format!("[{s},{every}]")),
         frames as f64 / 48_000.0,

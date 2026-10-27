@@ -6,7 +6,12 @@ socket-probe's.
 One log: a row a case, source and recording. More than one: each case's
 figures in every log side by side, the first log being the run before, and
 a last table of their sums over every case. A log of socket probes: a row a
-probe.
+probe. A sweep, every line with its `variant` (tools/walk-sweep.sh's logs
+put together): each variant against `base`, over every case and over those
+where a link narrowed, swung or dipped — every case but the jittery ones and
+the floors' — with the rate it held on the jittery ones.
+
+    python3 -I tools/walk.py --sweep walk-sweep.jsonl
 """
 
 import json
@@ -88,7 +93,47 @@ def socket(rows):
         ))
 
 
+def sweep(rows):
+    variants = {}
+    for r in rows:
+        variants.setdefault(r["variant"], []).append(r)
+
+    def jittery(r):
+        return "jitter" in r["case"]
+
+    def moving(r):
+        return not jittery(r) and "floor" not in r["case"]
+
+    def totals(rows):
+        return {
+            "rate": sum(r["rate_mean"] for r in rows) / len(rows),
+            "lost": sum(r["dropped"] + r["skipped"] for r in rows),
+            "late": sum(r["late_p95"] for r in rows),
+            "stalled": sum(r["stalled"] for r in rows),
+            "moves": sum(r["moves"] for r in rows),
+        }
+
+    def change(mine, base):
+        return "%+.0f%%" % ((mine / base - 1) * 100) if base else "—"
+
+    base = variants["base"]
+    every, narrowed = totals(base), totals([r for r in base if moving(r)])
+    print("| Variant | Rate | Lost | Late p95 | Moves | Rate, narrowed | Lost, narrowed | Late p95, narrowed | Stalled, narrowed | Moves, narrowed | kbit/s, jittery |")
+    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    for name, rows in variants.items():
+        a, n = totals(rows), totals([r for r in rows if moving(r)])
+        jitter = [r["rate_mean"] for r in rows if jittery(r)]
+        print("| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %.0f–%.0f |" % (
+            name, change(a["rate"], every["rate"]), change(a["lost"], every["lost"]), change(a["late"], every["late"]), change(a["moves"], every["moves"]),
+            change(n["rate"], narrowed["rate"]), change(n["lost"], narrowed["lost"]), change(n["late"], narrowed["late"]),
+            change(n["stalled"], narrowed["stalled"]), change(n["moves"], narrowed["moves"]), min(jitter), max(jitter),
+        ))
+
+
 def main():
+    if sys.argv[1] == "--sweep":
+        sweep(load(sys.argv[2]))
+        return
     logs = [(p, load(p)) for p in sys.argv[1:]]
     if "cc" in logs[0][1][0]:
         socket(logs[0][1])

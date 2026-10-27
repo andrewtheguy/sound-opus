@@ -1,0 +1,359 @@
+# The walk
+
+How `walk::BitrateWalk` was settled for its two users, the zdesk gateway and
+wlshare through it: what its sound goes through, measured where it could be
+and modelled where it could not; how the walk as released (v0.0.4) did on
+that; what it hears now and why; and what each constant was measured
+against. Every figure here is from a log under `bench/`, and every log can
+be made again:
+
+    sudo python3 -I tools/socket-probe.py 200 40 100 cubic "4096 16384 4194304" 7440 186 20
+    cargo build --release --example walk-sim
+    tools/walk-cases.sh > walk.jsonl
+    tools/walk-sweep.sh OUT
+    python3 -I tools/walk.py walk.jsonl
+
+The probes ran on lab2, alone (`benchmarks.md` has the machine). The
+simulation is deterministic and machine-free: the same recordings and flags
+give the same lines anywhere.
+
+## What the sound goes through
+
+`examples/walk-sim.rs` plays a recording as zdesk plays a desktop's sound,
+in virtual time:
+
+- **The source.** An RDP host's wave buffers, 8192 frames at 44.1 kHz,
+  about 186 ms, coded by the gateway's encoder, nine or ten packets a
+  buffer; or wlshare's 20 ms units, coded by wlshare at the rate the
+  gateway last named, over wlshare's own connection to the gateway, which
+  carries the pictures too.
+- **The gateway.** zdesk's broadcast queue, sixteen deep, dropping its
+  oldest; for RDP the encoder behind it, with silence shed while the walk
+  says the link is behind; for wlshare every queued unit batched into one
+  send. A channel two deep to the socket's writer, one batch a WebSocket
+  message in a TLS record.
+- **The socket and the link.** A TCP connection to a bottleneck a hop away,
+  modelled on the probes below: the congestion window is what the
+  bottleneck and its buffer hold, the socket takes 85 KB unsent and
+  unacknowledged before a write blocks, and wakes a blocked writer at two
+  thirds of that. The link's rate is the sound's share of it, and can change
+  at given times; a round trip of 40 ms, jitter on top at random, and a
+  delay another stream's queue adds.
+- **The browser.** Each packet played back to back from when its message
+  arrives, an underrun a stall, any lead past 300 ms trimmed, as zdesk's
+  page does.
+
+What a run says: the rate the sound was coded at, how late each packet's
+sound was heard after it was made (the RDP buffer's 186 ms is in it), what
+was not heard — dropped by the broadcast queue, skipped by the walk,
+trimmed by the browser — the silence shed, the stalls in sound that should
+have run on, and how often the rate moved.
+
+The cases, each with both sources over a minute of music (*Stay Awhile*,
+the indie rock of the bench) and a minute of speech (Leviticus 13) with four
+seconds of digital silence in every ten, a player paused — recorded speech
+has almost none of its own, 3.7 s in Leviticus's twelve minutes and none in
+the other two, and silence is the one thing the gateway sheds:
+
+| Case | The sound's link |
+|---|---|
+| room | 1000 kbit/s throughout |
+| room-jitter, room-jitter100 | the same, up to 60 or 100 ms more on any message, as a Wi-Fi hop adds |
+| narrow, narrow-jitter | 1000, then 200 from 10 s, under the 320 kbit/s ceiling; and with 60 ms of jitter |
+| narrower | 1000, then 100 from 10 s |
+| recover | 1000, 150 from 10 s, 1000 again from 25 s |
+| wobble | swinging between 450 and 250 every 3 s |
+| dips | 1000, but 60 for half a second every ten: a picture's keyframe on the same bottleneck |
+| start-low | 150 from the start |
+| between-floors | 1000, then 28 from 10 s |
+| under-floor | 1000, then 16 from 10 s |
+| path-delay | 1000, with another stream's queue adding 300 ms from 10 s to 40 s |
+| hop-burst | wlshare only: 600 KB of picture on its 20 Mbit/s connection to the gateway every 10 s |
+
+## What a socket holds
+
+The walk's signal was how long a send blocked, so what matters is how much
+a socket takes before one does. `tools/socket-probe.py` measures it on
+Linux: a sender, a router and a browser in network namespaces, the
+bottleneck on the router's way to the browser so the sender's TCP sees it
+only through its acks, and the sender writing 7440 bytes every 186 ms, an
+RDP buffer at 320 kbit/s, one write at a time as zdesk does
+(`bench/lab2-socket.jsonl`). Linux's own settings (CUBIC, `tcp_wmem` 4096
+16384 4194304) and lab2's (BBR, buffers to 32 MB), with and without
+`TCP_NOTSENT_LOWAT`, a bottleneck buffer of 100 and 500 ms:
+
+| Link, kbit/s | Queue, ms | Congestion control | tcp_wmem | Low-water mark | First block, s | Longest, ms | Blocks | Late p50, ms | Late max, ms | Held p50, bytes | Unsent p50, bytes |
+|---:|---:|---|---|---|---:|---:|---:|---:|---:|---:|---:|
+| 200 | 100 | cubic | 4096 16384 4194304 | — | 5.2 | 1643 | 5 of 72 | 3281 | 3872 | 76312 | 72112 |
+| 200 | 100 | cubic | 4096 16384 4194304 | 16384 | 2.2 | 1317 | 7 of 67 | 1396 | 1924 | 30272 | 27024 |
+| 200 | 100 | cubic | 4096 16384 4194304 | 1 | 2.2 | 1697 | 6 of 69 | 1175 | 1876 | 27264 | 22080 |
+| 200 | 100 | bbr | 4096 87380 33554432 | — | 8.0 | 2374 | 3 of 75 | 4787 | 5910 | 112912 | 108568 |
+| 200 | 100 | bbr | 4096 87380 33554432 | 16384 | 2.2 | 1358 | 7 of 66 | 1409 | 1830 | 31920 | 26480 |
+| 200 | 100 | bbr | 4096 87380 33554432 | 1 | 2.0 | 1739 | 5 of 69 | 1096 | 1857 | 26328 | 21032 |
+| 200 | 500 | cubic | 4096 16384 4194304 | — | 4.5 | 1651 | 6 of 74 | 3265 | 3704 | 67872 | 53392 |
+| 200 | 500 | cubic | 4096 16384 4194304 | 16384 | 4.5 | 2440 | 3 of 72 | 2282 | 3561 | 53144 | 35568 |
+| 200 | 500 | cubic | 4096 16384 4194304 | 1 | 2.8 | 2446 | 4 of 70 | 1975 | 2960 | 45048 | 30368 |
+| 200 | 500 | bbr | 4096 87380 33554432 | — | 7.6 | 1946 | 3 of 85 | 5769 | 7050 | 134880 | 123200 |
+| 200 | 500 | bbr | 4096 87380 33554432 | 16384 | 2.8 | 2422 | 4 of 68 | 2268 | 3159 | 52088 | 43200 |
+| 200 | 500 | bbr | 4096 87380 33554432 | 1 | 3.2 | 2858 | 4 of 74 | 2047 | 3230 | 47944 | 37808 |
+| 1000 | 100 | cubic | 4096 16384 4194304 | — | never | 0 | 0 of 108 | 50 | 50 | 7440 | 0 |
+| 1000 | 100 | bbr | 4096 87380 33554432 | — | never | 0 | 0 of 108 | 50 | 50 | 7440 | 4544 |
+| 1000 | 500 | cubic | 4096 16384 4194304 | — | never | 0 | 0 of 108 | 50 | 50 | 7440 | 0 |
+| 1000 | 500 | bbr | 4096 87380 33554432 | — | never | 0 | 0 of 108 | 50 | 50 | 7440 | 4544 |
+
+What it says:
+
+- On a link with room nothing ever blocks, and the socket holds one write.
+- On a link too narrow, Linux holds 68 to 76 KB before a write blocks —
+  almost all of it unsent, in the socket, not on the wire — and BBR with
+  large buffers 113 to 135 KB: 4.5 to 8 seconds before the first block, by
+  which time the sound is 3.3 to 5.8 s late.
+- When a write does block, it blocks for 1.6 to 2.4 s at once: Linux wakes
+  a writer only once a third of the buffer is free.
+- `TCP_NOTSENT_LOWAT` halves what is held, and the first block comes at 2 to
+  4.5 s, but the blocks are as long, 1.3 to 2.9 s: on this kernel a write is
+  still taken while the unsent bytes are past the mark.
+- Behind a reverse proxy the socket is a loopback one to the proxy, whose
+  own buffers come first; it can only hold more.
+
+So blocking is a late and lumpy signal wherever the gateway runs, and
+nothing a socket option does changes that. The simulation's socket is the
+first row: with the rate held over the same link,
+
+    walk-sim PinkNoise.wav --secs 20 --link 200 --held --timeline t.csv
+
+its first block comes at 5.2 s, the longest is 1.2 s, and the sound is
+3.1 s late, against the probe's 5.2 s, 1.6 s and 3.3 s.
+
+## The walk as released
+
+v0.0.4's walk heard each batch's send: blocked 20 ms or more was behind,
+two of the last four a verdict (`bench/walk-v0.0.4.jsonl`, the left column
+below). On these cases:
+
+- A link narrowed from 1000 to 200 kbit/s was first stepped down 10.7 s
+  after, on music over RDP, and in the three other runs never: the sound was
+  1.3 to 3.2 s late at the median and 3.2 to 5.1 s at the 95th percentile,
+  with 8.5 to 18 s of stalls in the minute.
+- On wlshare's stream the walk never moved, in any case. Its sends come
+  fifty a second, one unit each, and a blocked one is one in a run of clear
+  ones: never two of four. The broadcast queue, 320 ms of units, dropped
+  up to 45 s of sound a minute instead, which a passed stream does not tell
+  the walk.
+- Under the floor the sound was 40 to 73 s late at the 95th percentile.
+- Where the link stayed narrow, the walk climbed back to the ceiling while
+  the socket drained and blocked nothing, and fell again once it filled:
+  320 at 36 s and 94 at 45 s, on music over RDP.
+
+## What the walk hears now
+
+**The lag, by a ping.** zdesk's audio socket is already pinged for its
+heartbeat, and a browser answers a WebSocket ping as it reads it, behind
+everything written before it. So a ping written ahead of a batch comes back
+once the sound before it has crossed, and its round trip over the least any
+ping took is how long the newest sound waits for the link: the queue in the
+socket, at the bottleneck and in a proxy's buffers alike, in time. One is in
+flight at a time, written ahead of a batch when none is, so on RDP one a
+buffer and on wlshare one every round trip. A send that blocked is heard
+too, as the longer of the two at the next pong: a proxy that answered pings
+itself would leave that.
+
+**A ping still out is heard.** A queue growing faster than pongs come back
+delays its own pongs: one ping at a time behind 30 seconds of sound is one
+hearing in 30 seconds. So a ping out more than 100 ms past the least round
+trip is heard as lagging by that much at least, and again every 100 ms
+while it is out ([`OVERDUE`](../src/walk.rs)).
+
+**Skipping.** The rate drains a queue only by as much as it is under the
+link, and a queue built in the second before the walk could step down took
+seconds to drain at the rate it stepped to. A lag past 200 ms is sound that
+would be heard that late, and the walk skips it: the gateway drops what
+comes next before the encoder (a passed unit before the socket, with the
+gap the page is already told of) and writes pings back to back, until one
+comes back under 100 ms. What is heard comes back to live with a gap in it,
+rather than staying late.
+
+**The path's lag.** A ping measures every queue on the way, and another
+stream's — a download on the same home link, the picture's own — no skip or
+rate of the sound's drains. While skipping, nothing of the sound is written
+between two pings, so a queue of its own drains between them by the time
+between them; one that did not drain by half that is the path's, and the
+round trip it took becomes the least, measured over from then. Without
+that, a standing 300 ms queue of someone else's would have the walk skip
+the sound for as long as it stood.
+
+**The thresholds.** Lag is noisier than blocking, which a link with room
+never does: 100 ms behind and 50 ms clear, above a Wi-Fi hop's jitter
+(below). Everything else is as it was: the steps, the cooldowns, the clear
+span, the refusal hold, each swept again on the new signal and kept.
+
+On the same cases (`bench/walk-lag.jsonl`, the right column):
+
+- A link narrowed to 200 kbit/s is stepped down 0.5 to 0.6 s after, and the
+  rate then moves between 124 and 282 kbit/s, probing past the link and
+  walked back; the sound is heard 0.5 to 0.6 s late at the 95th percentile over RDP
+  and 0.2 s over wlshare, with 0.5 to 1.8 s of stalls, against 3.2 to 5.1 s
+  and 8.5 to 18 s.
+- wlshare's stream walks like RDP's, and the broadcast queue drops nothing
+  in any case: the change the plan had in mind for a passed stream's lag
+  reaching the walk is not needed, and `--passed-lag` measures the same.
+- Under the floor the sound is 0.9 to 1.2 s late at the 95th percentile
+  rather than 40 to 73: what the link cannot carry is skipped, 24 to 36 s of
+  the minute, where it was dropped by the queue after being heard late.
+- Another stream's 300 ms costs 0.7 to 0.8 s skipped once and the rate
+  289 to 291 kbit/s; the 300 ms itself is the path's to add.
+- A link with up to 100 ms of jitter and room to spare keeps 320 kbit/s.
+- What it costs: half-second dips every ten seconds read as narrowings, and
+  the rate sits at 163 to 254 kbit/s for stalls no shorter than v0.0.4's,
+  which held 320.
+
+Over every case the 95th-percentile lateness summed falls from 433 s to
+23 s, the sound lost from 490 s to 230 s (skipped, now, under the floor),
+and the stalls from 871 s to 191 s.
+
+| case | source | sound | walk-v0.0.4 | walk-lag |
+|---|---|---|---|---|
+| | | | kbit/s, late p95/max ms, lost s, stalled s | kbit/s, late p95/max ms, lost s, stalled s |
+| room | rdp | music | 320, 295/295, 0.0, 0.0 | 320, 295/295, 0.0, 0.0 |
+| room | rdp | speech | 320, 296/296, 0.0, 0.1 | 320, 296/296, 0.0, 0.1 |
+| room | wlshare | music | 320, 51/51, 0.0, 0.0 | 320, 51/51, 0.0, 0.0 |
+| room | wlshare | speech | 320, 51/51, 0.0, 0.0 | 320, 51/51, 0.0, 0.0 |
+| room-jitter | rdp | music | 320, 352/352, 0.0, 0.1 | 320, 350/350, 0.0, 0.0 |
+| room-jitter | rdp | speech | 320, 350/350, 0.0, 0.1 | 320, 351/351, 0.0, 0.1 |
+| room-jitter | wlshare | music | 320, 109/110, 0.0, 0.0 | 320, 109/109, 0.0, 0.0 |
+| room-jitter | wlshare | speech | 320, 109/109, 0.0, 0.0 | 320, 109/109, 0.0, 0.0 |
+| room-jitter100 | rdp | music | 320, 391/391, 0.0, 0.1 | 320, 390/390, 0.0, 0.0 |
+| room-jitter100 | rdp | speech | 320, 390/390, 0.0, 0.3 | 320, 391/391, 0.0, 0.2 |
+| room-jitter100 | wlshare | music | 320, 149/149, 0.0, 0.1 | 320, 149/149, 0.0, 0.0 |
+| room-jitter100 | wlshare | speech | 320, 148/148, 0.0, 0.1 | 320, 148/148, 0.0, 0.0 |
+| narrow-jitter | rdp | music | 214, 5153/5640, 0.0, 10.7 | 206, 545/715, 0.6, 0.6 |
+| narrow-jitter | rdp | speech | 320, 3941/4221, 0.0, 18.4 | 204, 519/785, 0.9, 1.3 |
+| narrow-jitter | wlshare | music | 320, 3414/3843, 17.6, 9.0 | 197, 228/452, 0.5, 0.5 |
+| narrow-jitter | wlshare | speech | 320, 3254/3497, 3.6, 15.9 | 198, 202/318, 0.7, 0.5 |
+| narrow | rdp | music | 214, 5145/5606, 0.0, 10.6 | 203, 590/865, 1.5, 1.6 |
+| narrow | rdp | speech | 320, 3909/4172, 0.0, 18.4 | 210, 545/800, 1.3, 1.8 |
+| narrow | wlshare | music | 320, 3376/3830, 17.6, 8.5 | 200, 182/403, 0.4, 0.5 |
+| narrow | wlshare | speech | 320, 3207/3446, 3.6, 15.8 | 196, 199/397, 1.1, 1.0 |
+| narrower | rdp | music | 162, 9578/11697, 5.9, 13.3 | 130, 566/1693, 1.9, 1.9 |
+| narrower | rdp | speech | 257, 11064/11768, 9.8, 30.6 | 152, 648/1617, 3.3, 3.0 |
+| narrower | wlshare | music | 320, 6756/6939, 33.1, 20.9 | 122, 229/1135, 2.0, 1.9 |
+| narrower | wlshare | speech | 320, 6469/7029, 18.6, 28.7 | 121, 253/1092, 2.4, 2.1 |
+| recover | rdp | music | 255, 6569/7854, 0.7, 7.6 | 219, 529/1079, 0.7, 0.9 |
+| recover | rdp | speech | 294, 4482/7286, 0.0, 7.9 | 253, 461/1023, 0.7, 1.1 |
+| recover | wlshare | music | 320, 4176/4618, 6.5, 5.7 | 221, 181/523, 0.6, 0.6 |
+| recover | wlshare | speech | 320, 3127/4619, 3.2, 7.1 | 220, 170/546, 0.5, 0.6 |
+| wobble | rdp | music | 320, 1055/1074, 0.0, 6.0 | 242, 606/698, 1.1, 1.4 |
+| wobble | rdp | speech | 320, 1052/1066, 0.0, 4.5 | 237, 557/641, 0.2, 1.3 |
+| wobble | wlshare | music | 320, 812/822, 0.0, 4.8 | 232, 239/239, 0.0, 0.2 |
+| wobble | wlshare | speech | 320, 807/825, 0.0, 2.9 | 242, 246/276, 0.3, 0.4 |
+| dips | rdp | music | 320, 571/708, 0.0, 1.5 | 163, 418/708, 0.4, 1.5 |
+| dips | rdp | speech | 320, 493/659, 0.0, 1.5 | 200, 430/606, 0.0, 1.4 |
+| dips | wlshare | music | 320, 391/465, 0.0, 0.9 | 228, 301/462, 0.9, 1.2 |
+| dips | wlshare | speech | 320, 383/464, 0.0, 0.9 | 254, 303/465, 1.4, 1.5 |
+| start-low | rdp | music | 172, 7582/8639, 3.2, 18.1 | 140, 567/1049, 0.7, 0.7 |
+| start-low | rdp | speech | 219, 7042/7735, 0.6, 21.4 | 151, 596/1054, 1.5, 2.3 |
+| start-low | wlshare | music | 320, 4555/5137, 30.5, 16.9 | 126, 197/652, 0.7, 0.7 |
+| start-low | wlshare | speech | 320, 4341/4628, 12.0, 26.2 | 136, 258/609, 1.1, 1.1 |
+| between-floors | rdp | music | 251, 31514/34903, 38.5, 60.9 | 105, 746/6430, 18.9, 13.2 |
+| between-floors | rdp | speech | 236, 28204/31822, 31.6, 53.4 | 141, 862/5984, 13.0, 10.0 |
+| between-floors | wlshare | music | 320, 23549/25018, 43.9, 44.6 | 86, 453/3465, 24.8, 19.5 |
+| between-floors | wlshare | speech | 320, 22564/25087, 37.9, 53.8 | 86, 436/3350, 16.5, 13.2 |
+| under-floor | rdp | music | 289, 73274/77026, 42.0, 104.5 | 151, 1092/11365, 34.7, 23.1 |
+| under-floor | rdp | speech | 320, 54356/58399, 38.8, 82.3 | 175, 1248/8316, 23.6, 16.7 |
+| under-floor | wlshare | music | 320, 41716/44570, 45.5, 64.2 | 85, 1011/6244, 35.8, 31.5 |
+| under-floor | wlshare | speech | 320, 40120/43998, 45.1, 70.2 | 85, 904/6028, 31.8, 27.0 |
+| path-delay | rdp | music | 320, 595/595, 0.0, 0.3 | 291, 595/595, 0.7, 0.4 |
+| path-delay | rdp | speech | 320, 595/595, 0.0, 0.4 | 291, 593/593, 0.7, 0.4 |
+| path-delay | wlshare | music | 320, 351/351, 0.0, 0.3 | 289, 351/351, 0.8, 0.3 |
+| path-delay | wlshare | speech | 320, 351/351, 0.0, 0.3 | 289, 351/351, 0.8, 0.3 |
+| hop-burst | wlshare | music | 320, 289/289, 0.0, 0.2 | 320, 289/289, 0.0, 0.2 |
+| hop-burst | wlshare | speech | 320, 287/287, 0.0, 0.2 | 320, 288/288, 0.0, 0.2 |
+
+
+| log | kbit/s mean | late p95 sum | late max sum | lost s | stalled s | moves |
+|---|---:|---:|---:|---:|---:|---:|
+| walk-v0.0.4 | 302 | 433160 | 474270 | 489.8 | 871.2 | 58 |
+| walk-lag | 221 | 22674 | 77241 | 229.6 | 190.6 | 457 |
+
+## The constants
+
+`tools/walk-sweep.sh` builds the crate with each constant moved one way and
+the other and runs every case on it (`bench/walk-sweep.jsonl`, a line a
+case and variant). Against the walk as it is, over every case and over
+those where a link narrowed, swung or dipped — every case but the jittery
+ones and the floors' — and the range of rates held on the jittery ones:
+
+| Variant | Rate | Lost | Late p95 | Moves | Rate, narrowed | Lost, narrowed | Late p95, narrowed | Stalled, narrowed | Moves, narrowed | kbit/s, jittery |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| base | +0% | +0% | +0% | +0% | +0% | +0% | +0% | +0% | +0% | 197–320 |
+| behind150 | +3% | +19% | +6% | +1% | +4% | +123% | +7% | +64% | +2% | 201–320 |
+| behind20 | -24% | -4% | -7% | +1% | -1% | -14% | -6% | -15% | -0% | 48–64 |
+| behind60 | -9% | -1% | -2% | +5% | +0% | -7% | -2% | -8% | +2% | 56–320 |
+| behind80 | -7% | +0% | -0% | +7% | +1% | -0% | -0% | -3% | +1% | 72–320 |
+| clear25 | +0% | +0% | -1% | -3% | +0% | +3% | +0% | +1% | -0% | 197–320 |
+| cool1 | -1% | -3% | -2% | +1% | -1% | -18% | -3% | -9% | +1% | 192–320 |
+| cool3 | +0% | +1% | +0% | -3% | +0% | +3% | +0% | +2% | -4% | 193–320 |
+| down34 | +2% | +4% | +1% | +2% | +3% | +23% | +1% | +11% | -1% | 200–320 |
+| floor16 | -2% | -33% | -11% | +6% | +0% | +0% | +0% | +0% | +0% | 197–320 |
+| floor24 | -1% | -17% | -6% | +5% | +0% | +0% | +0% | +0% | +0% | 197–320 |
+| hearings3 | +2% | +4% | +2% | -1% | +3% | +24% | +3% | +15% | -1% | 197–320 |
+| heavy300 | +3% | +5% | +1% | +0% | +4% | +39% | +2% | +19% | +1% | 198–320 |
+| hold30 | -2% | -1% | -1% | -15% | -2% | -9% | -2% | -7% | -13% | 197–320 |
+| hold5 | +3% | +3% | +1% | +15% | +4% | +21% | +1% | +11% | +15% | 198–320 |
+| nooverdue | +6% | +32% | +339% | -10% | +2% | +26% | +0% | +21% | -9% | 191–320 |
+| noskip | -9% | -57% | +1108% | +2% | -11% | -100% | +72% | -1% | +4% | 187–320 |
+| onestep | +3% | +9% | +1% | +5% | +4% | +46% | +2% | +24% | +1% | 198–320 |
+| overdue200 | +1% | +4% | +1% | -4% | +1% | +15% | +1% | +9% | -3% | 193–320 |
+| overdue50 | +1% | -1% | +1% | +2% | +2% | -3% | +0% | -2% | +2% | 198–320 |
+| skip150 | +0% | +3% | -4% | +0% | +0% | +24% | -3% | +5% | +1% | 193–320 |
+| skip300 | -1% | -6% | +10% | -3% | -1% | -29% | +4% | -9% | -3% | 193–320 |
+| span2 | +3% | +3% | +1% | +21% | +4% | +26% | +2% | +17% | +20% | 198–320 |
+| span5 | -4% | -4% | -3% | -20% | -6% | -26% | -4% | -19% | -20% | 193–320 |
+| up32 | -2% | -1% | -1% | +4% | -3% | -5% | -1% | -7% | +5% | 193–320 |
+| up8 | +1% | +2% | +2% | +4% | +1% | +18% | +2% | +11% | +3% | 194–320 |
+| together | -5% | -5% | -5% | -33% | -8% | -37% | -7% | -27% | -33% | 190–320 |
+
+What it says, and what each constant's comment carries:
+
+- The behind threshold is set by jitter: at 20 ms the walk read up to
+  60 ms of it on a link with room as a link behind and walked to 48 to
+  64 kbit/s; at 60 and 80 ms, up to 100 ms of it walked to 56 to 145. At
+  150 ms over twice the sound was lost where a link narrowed.
+- Without skipping, the sound under the floor is 39 to 42 s late; without
+  overdue hearings, up to 43 s.
+- Every step-size, span and cooldown variant either loses more sound or
+  trades rate for less loss. A 5 s clear span and a 30 s refusal hold lose
+  26% and 9% less where a link narrowed, swung or dipped, for 6% and 2% less
+  rate; together with a 1 s cooldown 37% less for 8%. They are not taken:
+  together they kept wlshare's sound at 134 to 149 kbit/s under the dips,
+  where this keeps it at 228 to 254, and at 162 after a link recovered,
+  where this has 220.
+
+## What the users do
+
+The walk is the users' to drive, and zdesk drives it differently now:
+
+- **zdesk.** The audio socket's task writes a ping ahead of a batch when
+  `ping` says to, and at once after a pong while `skipping`; tells the walk
+  `pong` for a pong of its own (the heartbeat's pings carry another
+  payload), `tick` at `next_tick`, and `sent` with how long a send blocked;
+  and publishes `skipping` beside `behind` for the side that reads the
+  queue, which drops what comes while it is set: an RDP buffer before the
+  encoder, a passed unit before the socket with the gap marked. That task
+  has to keep reading pongs while a write is blocked, which today's single
+  select does not: the write goes to a task of its own. Everything else —
+  the queue's depth, the channel's, the shedding — stays.
+- **wlshare.** Nothing: it codes at the rate it is told, and the gateway's
+  queue is where its sound is skipped.
+
+## What is not modelled
+
+- Losses and retransmissions: the bottleneck's buffer never overflows, the
+  window being what it holds. A lost segment is a lag like any other to a
+  ping, and a longer one.
+- The picture as a stream of its own: it appears as the dips, and as the
+  path's delay, not as a TCP flow sharing the bottleneck.
+- Jitter as a Wi-Fi hop has it, in bursts: here it is uniform and
+  independent, message by message.
+- The browser's decoding, and any time a page takes to read a message.
+- A link's share moving with the picture's: each case gives the sound's own.
