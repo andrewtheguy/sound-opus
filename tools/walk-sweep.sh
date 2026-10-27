@@ -20,13 +20,17 @@ case $out in
 esac
 rsync -a --delete --exclude target --exclude .git ${inside:+--exclude "$inside"} "$repo/" "$out/crate/"
 
-# NAME then NAME=VALUE pairs: the walk with each constant set so.
+# NAME then NAME=VALUE pairs: the walk with each constant set so. A perl
+# substitution, s/.../.../, in place of a pair changes a line of the code.
 variant() {
     name=$1
     shift
     cp "$repo/src/walk.rs" "$out/crate/src/walk.rs"
     for pair in "$@"; do
-        perl -pi -e "s/^((?:pub )?const ${pair%%=*}: [^=]*= ).*;/\${1}${pair#*=};/" "$out/crate/src/walk.rs"
+        case $pair in
+        s/*) perl -pi -e "$pair" "$out/crate/src/walk.rs" ;;
+        *) perl -pi -e "s/^((?:pub )?const ${pair%%=*}: [^=]*= ).*;/\${1}${pair#*=};/" "$out/crate/src/walk.rs" ;;
+        esac
     done
     if [ $# -gt 0 ] && cmp -s "$repo/src/walk.rs" "$out/crate/src/walk.rs"; then
         echo "$name changed nothing" >&2
@@ -49,7 +53,10 @@ variant onestep LAG_HEAVY="$(secs 1000)" LAG_SEVERE="$(secs 2000)"
 variant heavy300 LAG_HEAVY="$(ms 300)" LAG_SEVERE="$(ms 800)"
 variant skip150 SKIP_LAG="$(ms 150)"
 variant skip300 SKIP_LAG="$(ms 300)"
-variant noskip SKIP_LAG="$(secs 3600)"
+# The floor's skipping is skipping too.
+noprobe='s/self\.bitrate <= BITRATE_FLOOR && self\.skipping/false \&\& self.skipping/'
+variant noskip SKIP_LAG="$(secs 3600)" "$noprobe"
+variant noprobe "$noprobe"
 variant overdue50 OVERDUE="$(ms 50)"
 variant overdue200 OVERDUE="$(ms 200)"
 variant nooverdue OVERDUE="$(secs 3600)"

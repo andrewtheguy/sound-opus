@@ -416,6 +416,12 @@ impl BitrateWalk {
             return None;
         }
         let moved = if behind && self.verdicts.count_ones() >= BEHIND_HEARINGS {
+            // At the floor a link still behind is left to skipping, whatever
+            // the lag: no rate drains it, and a lag that does not drain while
+            // nothing is written is the path's.
+            if self.bitrate <= BITRATE_FLOOR && self.skipping.is_none() {
+                self.skipping = Some((now, None));
+            }
             self.give_up(lag, now)
         } else if self.clear.is_some_and(|(since, count)| count >= CLEAR_HEARINGS && now.saturating_duration_since(since) >= CLEAR_SPAN) {
             self.take_back(now)
@@ -772,6 +778,30 @@ mod tests {
         let (moved, _) = hearings(&mut walk, CLEAR_RUN, path, at + ADJUST_COOLDOWN);
         assert_eq!(moved, Some(48_666), "and the walk climbs back on it");
         assert!(!walk.behind());
+    }
+
+    /// At the floor a link still behind is skipped under [`SKIP_LAG`] too,
+    /// no rate being left to drain it, and a lag that then does not drain is
+    /// the path's: a route that grew by less than would skip does not hold
+    /// the walk at the floor for good.
+    #[test]
+    fn a_lag_still_behind_at_the_floor_is_skipped_and_told_apart() {
+        let start = Instant::now();
+        let mut walk = walk(32_000, start);
+        let path = LAG_HEAVY;
+        assert_eq!(verdict(&mut walk, path, start), Some(BITRATE_FLOOR));
+        assert!(!walk.skipping(), "{path:?} above the floor is left to the rate");
+        let mut at = start + ADJUST_COOLDOWN;
+        assert_eq!(verdict(&mut walk, path, at), None, "nothing left to give");
+        assert!(walk.skipping(), "at the floor it is skipped");
+        for _ in 0..2 {
+            assert!(walk.ping(at));
+            at += TRIP + path;
+            walk.pong(at);
+        }
+        assert!(!walk.skipping(), "nothing more is skipped for the path's lag");
+        let (moved, _) = hearings(&mut walk, CLEAR_RUN, path, at + ADJUST_COOLDOWN);
+        assert_eq!(moved, Some(26_000), "and the walk climbs back on it");
     }
 
     /// The rate comes back in steps that double, from a sixteenth of the

@@ -65,6 +65,9 @@ run under-floor --link 1000,16@10 "$@"
 # Another stream's queue at the bottleneck, 300 ms of it for half a minute,
 # which no rate or skip of the sound's drains.
 run path-delay --link 1000 --delay 0,300@10,0@40 "$@"
+# A route 150 ms longer from ten seconds on, under the lag that skips: told
+# apart from the sound's own queue only once the walk is at the floor.
+run path-longer --link 1000 --delay 0,150@10 "$@"
 # A keyframe's worth of pixels on wlshare's own connection to the gateway,
 # every ten seconds, which the RDP sound does not share.
 for recording in "$music" "$speech"; do
