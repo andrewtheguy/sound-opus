@@ -341,6 +341,160 @@ less the other.
 | 256 | 151 | 0.75% | 234 | 4167 | 256.1 | 261.5 | 966 | 0.20 | 0.77 | 25.38 | 100% | 100% |
 | 320 | 155 | 0.77% | 241 | 1666 | 320.0 | 326.8 | 1210 | 0.14 | 0.56 | 26.71 | 100% | 100% |
 
+## Rate control
+
+Item 4: constrained VBR, the crate's, against unconstrained VBR and CBR,
+at complexity 10 and `AUDIO`, at every rate of the baseline, in one run on
+lab2: `docs/bench/lab2-vbr.jsonl`, the packets under `2026-10-26/vbr/`.
+
+```sh
+SETTINGS=c10-audio-cvbr,c10-audio-vbr,c10-audio-cbr ... bench
+```
+
+### What it says
+
+**Constrained VBR stays: unconstrained VBR breaks the walk's premise, and
+CBR sends silence at the full rate.**
+
+*Unconstrained VBR* comes to 2 to 8 % under the rate over a recording, but
+its busiest second is 28 to 45 % over it (178 kbit/s at 128, 419 at 320),
+against constrained VBR's 2.7 % at most from 64 kbit/s up, and its
+99th-percentile packet is up to 1.30 times constrained VBR's. A link set
+at the number would meet nearly half as much again. What it buys is moving bytes
+between recordings, not quality over them: it gives the piano more (the
+Goldberg Aria's SegSNR at 96 kbit/s 28.1 dB against 25.9) and speech less
+(Leviticus's at 128 kbit/s 22.0 dB against 24.2), and over the recordings
+its SegSNR is 0.29 dB lower to 0.18 higher and its side LSD up to 0.26 dB
+worse, at the same cost.
+
+*CBR* makes every packet the rate's size: its busiest second is the rate
+exactly, 2 to 10 % under constrained VBR's, and its proxies are within
+0.12 dB of constrained VBR's from 128 kbit/s up. But a packet of silence is the rate's
+size too, 800 bytes at 320 kbit/s against constrained VBR's 3, and a
+desktop is often silent: wlshare sends every block, and zdesk
+sheds silence only while the link is behind. At 96 kbit/s CBR codes three
+recordings below fullband, the Fantasy, the Aria and the station (libopus
+counts a CBR rate a twelfth lower when it picks the bandwidth,
+`src/opus_encoder.c:1037`), and their LSD rises, the station's 0.42 dB to
+2.35. At 32 and 48 kbit/s its SILK costs 8 % more a block, and its worst
+99th percentile 1.45 times as much.
+
+### The tables
+
+The recordings together, each against constrained VBR and on its own;
+constrained VBR's are the baseline's.
+
+#### `c10-audio-vbr` against `c10-audio-cvbr`
+
+Time and bytes as this setting over the other; the proxies as this setting
+less the other.
+
+| Rate, kbit/s | Time | 99th | Came to | Peak | 99th packet | LSD | Side LSD | SegSNR | CELT, this | CELT, other |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 32 | 1.00 | $\color{red}{1.02}$ | $\color{green}{0.98}$ | $\color{red}{1.45}$ | $\color{red}{1.24}$ | $\color{red}{+0.02}$ | $\color{red}{+0.20}$ | $\color{green}{+0.09}$ | 69% | 69% |
+| 48 | 1.00 | $\color{red}{1.13}$ | $\color{green}{0.98}$ | $\color{red}{1.40}$ | $\color{red}{1.27}$ | -0.00 | $\color{red}{+0.03}$ | $\color{green}{+0.18}$ | 72% | 72% |
+| 64 | $\color{green}{0.99}$ | $\color{red}{1.02}$ | $\color{green}{0.94}$ | $\color{red}{1.43}$ | $\color{red}{1.29}$ | $\color{red}{+0.01}$ | $\color{red}{+0.03}$ | $\color{red}{-0.01}$ | 100% | 100% |
+| 96 | 1.00 | 1.00 | $\color{green}{0.92}$ | $\color{red}{1.41}$ | $\color{red}{1.30}$ | $\color{red}{+0.02}$ | $\color{red}{+0.04}$ | $\color{red}{-0.16}$ | 100% | 100% |
+| 128 | $\color{green}{0.97}$ | $\color{red}{1.04}$ | $\color{green}{0.93}$ | $\color{red}{1.36}$ | $\color{red}{1.30}$ | $\color{red}{+0.01}$ | $\color{red}{+0.26}$ | $\color{red}{-0.29}$ | 100% | 100% |
+| 160 | $\color{green}{0.98}$ | $\color{green}{0.99}$ | $\color{green}{0.94}$ | $\color{red}{1.32}$ | $\color{red}{1.30}$ | +0.00 | $\color{green}{-0.03}$ | $\color{red}{-0.13}$ | 100% | 100% |
+| 192 | $\color{green}{0.99}$ | $\color{green}{0.99}$ | $\color{green}{0.94}$ | $\color{red}{1.31}$ | $\color{red}{1.30}$ | +0.00 | $\color{green}{-0.02}$ | $\color{red}{-0.01}$ | 100% | 100% |
+| 256 | 1.00 | $\color{red}{1.03}$ | $\color{green}{0.96}$ | $\color{red}{1.31}$ | $\color{red}{1.29}$ | +0.00 | $\color{green}{-0.02}$ | $\color{green}{+0.03}$ | 100% | 100% |
+| 320 | 1.00 | $\color{red}{1.03}$ | $\color{green}{0.97}$ | $\color{red}{1.28}$ | $\color{red}{1.06}$ | +0.00 | $\color{green}{-0.02}$ | $\color{green}{+0.17}$ | 100% | 100% |
+
+#### `c10-audio-cbr` against `c10-audio-cvbr`
+
+Time and bytes as this setting over the other; the proxies as this setting
+less the other.
+
+| Rate, kbit/s | Time | 99th | Came to | Peak | 99th packet | LSD | Side LSD | SegSNR | CELT, this | CELT, other |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 32 | $\color{red}{1.08}$ | $\color{red}{1.45}$ | 1.00 | $\color{green}{0.90}$ | $\color{green}{0.65}$ | $\color{red}{+0.02}$ | $\color{red}{+0.13}$ | $\color{red}{-0.16}$ | 69% | 69% |
+| 48 | $\color{red}{1.08}$ | $\color{red}{1.43}$ | 1.00 | $\color{green}{0.91}$ | $\color{green}{0.66}$ | $\color{red}{+0.03}$ | $\color{green}{-0.04}$ | $\color{red}{-0.09}$ | 71% | 72% |
+| 64 | $\color{green}{0.99}$ | $\color{red}{1.01}$ | $\color{green}{0.99}$ | $\color{green}{0.97}$ | $\color{green}{0.66}$ | $\color{red}{+0.02}$ | $\color{green}{-0.01}$ | $\color{green}{+0.06}$ | 100% | 100% |
+| 96 | $\color{green}{0.98}$ | $\color{red}{1.03}$ | 1.00 | $\color{green}{0.98}$ | $\color{green}{0.67}$ | $\color{red}{+0.21}$ | $\color{green}{-0.01}$ | $\color{green}{+0.16}$ | 100% | 100% |
+| 128 | 1.00 | $\color{red}{1.01}$ | 1.00 | $\color{green}{0.98}$ | $\color{green}{0.67}$ | -0.00 | $\color{green}{-0.01}$ | $\color{green}{+0.03}$ | 100% | 100% |
+| 160 | $\color{green}{0.99}$ | $\color{green}{0.98}$ | 1.00 | $\color{green}{0.98}$ | $\color{green}{0.67}$ | -0.00 | $\color{red}{+0.04}$ | $\color{green}{+0.12}$ | 100% | 100% |
+| 192 | 1.00 | $\color{green}{0.99}$ | 1.00 | $\color{green}{0.98}$ | $\color{green}{0.66}$ | +0.00 | -0.00 | $\color{red}{-0.03}$ | 100% | 100% |
+| 256 | 1.00 | 1.00 | 1.00 | $\color{green}{0.98}$ | $\color{green}{0.66}$ | -0.00 | +0.00 | -0.00 | 100% | 100% |
+| 320 | 1.00 | 1.00 | 1.00 | $\color{green}{0.98}$ | $\color{green}{0.66}$ | +0.00 | -0.00 | $\color{red}{-0.05}$ | 100% | 100% |
+
+#### `c10-audio-vbr`
+
+15 recordings, 103 minutes of sound. A block is 20 ms; *of one core* is the mean block over
+20 ms. The 99th-percentile and worst blocks are the worst recording's.
+*Peak* is the most any second of any recording came to.
+
+| Rate, kbit/s | µs a block | Of one core | 99th, µs | Worst, µs | Came to, kbit/s | Peak, kbit/s | 99th packet, bytes | LSD, dB | Side LSD, dB | SegSNR, dB | CELT | Fullband |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 32 | 126 | 0.63% | 351 | 1931 | 31.4 | 51.4 | 153 | 1.60 | 7.11 | 11.99 | 69% | 83% |
+| 48 | 126 | 0.63% | 372 | 4115 | 47.2 | 73.6 | 232 | 1.28 | 6.06 | 14.06 | 72% | 83% |
+| 64 | 101 | 0.51% | 148 | 1917 | 60.4 | 93.7 | 311 | 1.00 | 4.95 | 15.20 | 100% | 83% |
+| 96 | 116 | 0.58% | 173 | 1725 | 89.0 | 138.4 | 467 | 0.54 | 3.42 | 18.33 | 100% | 100% |
+| 128 | 125 | 0.63% | 190 | 1814 | 119.5 | 178.2 | 624 | 0.41 | 2.33 | 20.41 | 100% | 100% |
+| 160 | 136 | 0.68% | 210 | 1741 | 150.3 | 215.9 | 780 | 0.33 | 1.31 | 22.02 | 100% | 100% |
+| 192 | 141 | 0.71% | 214 | 1638 | 181.4 | 257.9 | 935 | 0.27 | 1.05 | 23.32 | 100% | 100% |
+| 256 | 150 | 0.75% | 233 | 1690 | 246.1 | 341.6 | 1244 | 0.20 | 0.75 | 25.37 | 100% | 100% |
+| 320 | 155 | 0.77% | 246 | 1729 | 310.1 | 419.1 | 1276 | 0.14 | 0.54 | 26.85 | 100% | 100% |
+
+#### `c10-audio-cbr`
+
+15 recordings, 103 minutes of sound. A block is 20 ms; *of one core* is the mean block over
+20 ms. The 99th-percentile and worst blocks are the worst recording's.
+*Peak* is the most any second of any recording came to.
+
+| Rate, kbit/s | µs a block | Of one core | 99th, µs | Worst, µs | Came to, kbit/s | Peak, kbit/s | 99th packet, bytes | LSD, dB | Side LSD, dB | SegSNR, dB | CELT | Fullband |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 32 | 136 | 0.68% | 500 | 1753 | 32.0 | 32.0 | 80 | 1.61 | 7.05 | 11.73 | 69% | 83% |
+| 48 | 135 | 0.68% | 474 | 2399 | 48.0 | 48.0 | 120 | 1.31 | 5.98 | 13.79 | 71% | 83% |
+| 64 | 101 | 0.50% | 147 | 2488 | 64.0 | 64.0 | 160 | 1.01 | 4.92 | 15.27 | 100% | 83% |
+| 96 | 114 | 0.57% | 178 | 1878 | 96.0 | 96.0 | 240 | 0.73 | 3.38 | 18.65 | 100% | 83% |
+| 128 | 128 | 0.64% | 185 | 1849 | 128.0 | 128.0 | 320 | 0.39 | 2.06 | 20.73 | 100% | 100% |
+| 160 | 137 | 0.69% | 209 | 2114 | 160.0 | 160.0 | 400 | 0.32 | 1.38 | 22.28 | 100% | 100% |
+| 192 | 144 | 0.72% | 212 | 2260 | 192.0 | 192.0 | 480 | 0.27 | 1.07 | 23.30 | 100% | 100% |
+| 256 | 151 | 0.75% | 226 | 1692 | 256.0 | 256.0 | 640 | 0.20 | 0.77 | 25.34 | 100% | 100% |
+| 320 | 154 | 0.77% | 239 | 1700 | 320.0 | 320.0 | 800 | 0.14 | 0.56 | 26.63 | 100% | 100% |
+
+## Rate against quality
+
+Item 5, from the baseline, since items 2 to 4 changed no setting: where
+the proxies say the stereo stream stops improving, which is what zdesk's
+ceiling of 320 kbit/s (`AUDIO_BITRATE_KBPS`, chosen to match a Mac's
+AAC-ELD) rests on. The means over the recordings, and what each step up
+bought:
+
+| Rate, kbit/s | LSD, dB | Step | Side LSD, dB | Step | SegSNR, dB | Step |
+|---:|---:|---:|---:|---:|---:|---:|
+| 32 | 1.59 | | 6.92 | | 11.89 | |
+| 48 | 1.28 | −0.30 | 6.03 | −0.89 | 13.88 | +1.99 |
+| 64 | 0.98 | −0.30 | 4.92 | −1.10 | 15.22 | +1.33 |
+| 96 | 0.52 | −0.46 | 3.39 | −1.54 | 18.50 | +3.28 |
+| 128 | 0.39 | −0.13 | 2.07 | −1.32 | 20.70 | +2.20 |
+| 160 | 0.32 | −0.07 | 1.35 | −0.72 | 22.15 | +1.45 |
+| 192 | 0.27 | −0.05 | 1.08 | −0.27 | 23.33 | +1.18 |
+| 256 | 0.20 | −0.07 | 0.77 | −0.31 | 25.34 | +2.01 |
+| 320 | 0.14 | −0.05 | 0.56 | −0.21 | 26.68 | +1.34 |
+
+### What it says
+
+**The spectra stop improving much at 160 to 192 kbit/s; only the waveform
+goes on.** Each channel's LSD gains under 0.1 dB a step from 128 kbit/s up. The
+side's, the stereo image, gains 0.9 to 1.5 dB a step to 128 and 0.7 to 160,
+then 0.2 to 0.3 a step to 320: the knee is at 160. SegSNR rises one to two
+dB a step all the way, as a waveform measure does for any coder given more
+bits; it ranks rates, it does not say what is heard. The recording that
+goes on gaining is the one whose side is quiet and busy, the Raven (side
+LSD 3.99 dB at 160, 3.43 at 192, 1.77 at 320); every other recording's
+side is within 2.1 dB of the source's from 192 up, the indie rock's 0.83.
+
+So by the proxies a stereo stream at 192 kbit/s is within 0.13 dB of
+320's LSD and 0.52 dB of its side's, at six tenths of the link. That is a finding for zdesk, not a setting here:
+the ceiling is zdesk's, and a listen decides it. The pairs to listen to are
+every recording at 160, 192, 256 and 320 kbit/s, under
+`2026-10-26/baseline/opus/crate-<kbit>/` on the Mac. The cost is no reason
+either way: 139 µs a block at 160 kbit/s against 155 at 320. Whether a
+lower ceiling helps the walk, which starts from it and has further to come
+down from 320 on a link that narrows, is for the simulator (item 6).
+
 ## The baseline: the recordings together
 
 ### `crate`
