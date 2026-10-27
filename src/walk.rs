@@ -55,9 +55,9 @@
 //! route — and becomes the round trip it is measured over, so the walk
 //! neither skips nor gives rate up for what neither would drain. A sender
 //! that dropped sound it could not send tells the walk so
-//! ([`BitrateWalk::dropped`]), and the link is behind from that alone. A walk
-//! that is not adaptive — the operator asked for the rate held — pings
-//! nothing, hears nothing, holds the ceiling and never counts the link behind.
+//! ([`BitrateWalk::dropped`]), and the link is behind from that alone. Every
+//! walk walks: there is no holding the ceiling, which a link that cannot carry
+//! it would only hear as sound arriving later and later.
 //!
 //! Pure, and takes `now` rather than reading a clock, so every decision is
 //! testable without waiting for one. Every constant was settled on
@@ -259,8 +259,6 @@ const _: () = assert!(BITRATE_MIN < BITRATE_FLOOR && BITRATE_FLOOR < crate::BITR
 pub struct BitrateWalk {
     /// The configured rate: the most this ever asks for.
     ceiling: u32,
-    /// Whether the link's lag moves this walk at all.
-    adaptive: bool,
     /// The rate in force.
     bitrate: u32,
     /// Whether the link is behind: a hearing behind or the sender dropped
@@ -311,16 +309,14 @@ pub struct BitrateWalk {
 
 impl BitrateWalk {
     /// A walk that starts at `ceiling` bits per second and goes down to
-    /// [`BITRATE_FLOOR`]; `adaptive` is whether the link's lag moves it, and
-    /// without it the walk holds the ceiling.
+    /// [`BITRATE_FLOOR`] as the link's lag moves it.
     ///
     /// `ceiling` is clamped to what an encoder takes, [`BITRATE_MIN`] to
     /// [`BITRATE_MAX`], so every rate the walk arrives at is one.
-    pub fn new(ceiling: u32, adaptive: bool) -> Self {
+    pub fn new(ceiling: u32) -> Self {
         let ceiling = ceiling.clamp(BITRATE_MIN, BITRATE_MAX);
         Self {
             ceiling,
-            adaptive,
             bitrate: ceiling,
             behind: false,
             verdicts: 0,
@@ -344,11 +340,6 @@ impl BitrateWalk {
         self.ceiling
     }
 
-    /// Whether the link's lag moves this walk.
-    pub fn adaptive(&self) -> bool {
-        self.adaptive
-    }
-
     /// The rate in force, in bits per second.
     pub fn bitrate(&self) -> u32 {
         self.bitrate
@@ -357,7 +348,7 @@ impl BitrateWalk {
     /// Whether the link is behind right now: a hearing was, or the sender
     /// dropped sound ([`Self::dropped`]), and the link has not been clear for
     /// a second since. What a sender with something free to shed — silence,
-    /// before an encoder — sheds it on. Never on a walk that is not adaptive.
+    /// before an encoder — sheds it on.
     pub fn behind(&self) -> bool {
         self.behind
     }
@@ -366,10 +357,9 @@ impl BitrateWalk {
     /// last went [`PING_SPACING`] ago or more, and the walk takes it as
     /// written at `now`. Asked ahead of every batch, and while
     /// [`Self::skipping`] at once when a pong is back, since no batch comes
-    /// then and the spacing does not hold. Never on a walk that is not
-    /// adaptive.
+    /// then and the spacing does not hold.
     pub fn ping(&mut self, now: Instant) -> bool {
-        if !self.adaptive || self.ping.is_some() {
+        if self.ping.is_some() {
             return false;
         }
         if self.skipping.is_none() && self.pinged.is_some_and(|at| now.saturating_duration_since(at) < PING_SPACING) {
@@ -447,17 +437,15 @@ impl BitrateWalk {
     /// batch with the ones before: one batch off, the same in the simulator,
     /// and nothing to a flag read over spans of a second.
     pub fn sent(&mut self, blocked: Duration, packets: u32, bytes: usize) {
-        if self.adaptive {
-            self.blocked = self.blocked.max(blocked);
-            self.carried.0 += packets;
-            self.carried.1 += bytes;
-        }
+        self.blocked = self.blocked.max(blocked);
+        self.carried.0 += packets;
+        self.carried.1 += bytes;
     }
 
     /// Whether to skip what arrives now: drop it before the encoder, or a
     /// unit before the socket, because a lag past 200 ms says that much is
     /// queued, or at the floor a link is still behind, until a pong says it
-    /// has drained. Never on a walk that is not adaptive.
+    /// has drained.
     pub fn skipping(&self) -> bool {
         self.skipping.is_some()
     }
@@ -467,9 +455,6 @@ impl BitrateWalk {
     /// so until a second of clear hearings has followed. No verdict on the
     /// rate: the lag that filled the queue was heard already.
     pub fn dropped(&mut self) {
-        if !self.adaptive {
-            return;
-        }
         self.behind = true;
         self.clear = None;
     }
@@ -638,7 +623,7 @@ mod tests {
     /// A walk from `ceiling` whose first ping, written two batches before
     /// `start`, came back in [`TRIP`].
     fn walk(ceiling: u32, start: Instant) -> BitrateWalk {
-        let mut walk = BitrateWalk::new(ceiling, true);
+        let mut walk = BitrateWalk::new(ceiling);
         assert!(walk.ping(start - 2 * BATCH));
         assert_eq!(walk.pong(start - 2 * BATCH + TRIP), None);
         walk
@@ -687,15 +672,15 @@ mod tests {
         let mut walk = walk(BITRATE_DEFAULT, start);
         assert!(recovery(&mut walk, 4, start).is_empty());
         assert_eq!((walk.ceiling(), walk.bitrate()), (BITRATE_DEFAULT, BITRATE_DEFAULT));
-        assert!(walk.adaptive() && !walk.behind());
+        assert!(!walk.behind());
     }
 
     /// A ceiling outside what the encoder takes is clamped to it, so every
     /// rate the walk arrives at is one the encoder takes.
     #[test]
     fn a_ceiling_off_the_encoder_is_clamped_to_it() {
-        assert_eq!(BitrateWalk::new(u32::MAX, true).bitrate(), BITRATE_MAX);
-        assert_eq!(BitrateWalk::new(0, true).ceiling(), BITRATE_MIN);
+        assert_eq!(BitrateWalk::new(u32::MAX).bitrate(), BITRATE_MAX);
+        assert_eq!(BitrateWalk::new(0).ceiling(), BITRATE_MIN);
     }
 
     /// One ping at a time: none is asked for while one is in flight, and a
@@ -703,7 +688,7 @@ mod tests {
     #[test]
     fn one_ping_is_in_flight_at_a_time() {
         let start = Instant::now();
-        let mut walk = BitrateWalk::new(96_000, true);
+        let mut walk = BitrateWalk::new(96_000);
         assert_eq!(walk.pong(start), None, "no ping in flight");
         assert!(walk.ping(start));
         assert!(!walk.ping(start + BATCH), "one is in flight");
@@ -861,7 +846,7 @@ mod tests {
     #[test]
     fn a_ping_is_overdue_only_once_a_round_trip_is_known() {
         let start = Instant::now();
-        let mut walk = BitrateWalk::new(96_000, true);
+        let mut walk = BitrateWalk::new(96_000);
         assert!(walk.ping(start));
         assert_eq!(walk.next_tick(), None);
         assert_eq!(walk.tick(start + Duration::from_secs(10)), None);
@@ -1179,24 +1164,6 @@ mod tests {
         let (moved, _) = hearings(&mut walk, 5, Duration::ZERO, at + BATCH);
         assert!(moved.is_empty());
         assert!(!walk.behind());
-        assert_eq!(walk.bitrate(), 96_000);
-    }
-
-    /// A walk that is not adaptive pings nothing and hears nothing: the rate
-    /// is the ceiling whatever the sends do, the link is never behind, and
-    /// nothing is skipped.
-    #[test]
-    fn a_walk_that_is_not_adaptive_hears_nothing() {
-        let start = Instant::now();
-        let mut walk = BitrateWalk::new(96_000, false);
-        assert!(!walk.adaptive());
-        assert!(!walk.ping(start));
-        assert_eq!(walk.pong(start + LAG_SEVERE), None);
-        walk.dropped();
-        walk.sent(LAG_SEVERE, LOUD.0, LOUD.1);
-        assert_eq!(walk.tick(start + Duration::from_secs(10)), None);
-        assert!(!walk.behind());
-        assert!(!walk.skipping());
         assert_eq!(walk.bitrate(), 96_000);
     }
 

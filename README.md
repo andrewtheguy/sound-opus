@@ -14,8 +14,8 @@ and the [zdesk](https://github.com/andrewtheguy/zdesk) gateway both code it.
   one — down while the link lags, as a ping on the sound's own connection
   measures it, back up while it keeps up, to a floor fixed here — whether the
   link is behind, for a sender with silence to shed, and whether to skip
-  sound so what is heard comes back to live. Its one setting is whether it
-  walks at all. The same walk for a stream coded by the gateway and for
+  sound so what is heard comes back to live. Every stream walks, and its one
+  setting is the ceiling. The same walk for a stream coded by the gateway and for
   wlshare's, which the gateway tells the rate. `docs/walk.md` has how it was
   settled, on `examples/walk-sim.rs`.
 
@@ -26,5 +26,5 @@ so nothing of Opus is compiled to build and nothing is installed to run.
 Use it by release tag:
 
 ```toml
-sound-opus = { git = "https://github.com/andrewtheguy/sound-opus", tag = "v0.0.6" }
+sound-opus = { git = "https://github.com/andrewtheguy/sound-opus", tag = "v0.0.7" }
 ```

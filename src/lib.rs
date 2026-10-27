@@ -15,9 +15,9 @@
 //!   configured one: down while the link lags, as a ping on the sound's own
 //!   connection measures it, back up while it keeps up, to a floor fixed
 //!   here; whether the link is behind, for a sender with silence to shed; and
-//!   whether to skip sound so what is heard comes back to live. Its one
-//!   setting is whether it walks at all; the rate it arrives at is moved on an
-//!   encoder here or named to a remote that codes its own.
+//!   whether to skip sound so what is heard comes back to live. Every stream
+//!   walks, and its one setting is the ceiling; the rate it arrives at is
+//!   moved on an encoder here or named to a remote that codes its own.
 //!
 //! ## What a stream is
 //!

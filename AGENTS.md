@@ -6,8 +6,8 @@
   tag of this repository. How a block becomes a packet, what the encoder is set
   to, which rates it takes, what a decoder is told and how the rate walks under
   what a link will bear change here and reach them as a pin bump: neither user
-  carries adaptive logic of its own, and a user's settings are the rate and
-  whether it walks, never a floor. Nothing about a wire belongs here: how a
+  carries adaptive logic of its own, and a user's one setting is the rate,
+  never whether it walks or a floor. Nothing about a wire belongs here: how a
   packet is framed in a message, how a stream's shape is agreed, what a
   sample's bytes are, and how a ping is written and its pong read belong to
   each user.

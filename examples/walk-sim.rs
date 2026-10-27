@@ -43,7 +43,8 @@
 //! the pump drops what comes and the writer pings again as each pong is back.
 //!
 //! `--ceiling` is the rate the walk starts at and never passes, 192 kbit/s as
-//! zdesk sets it; `--held` holds it there. `--secs` plays that much of the
+//! zdesk sets it; `--held` holds it there, pinging nothing, a baseline no
+//! stream runs, since every one walks. `--secs` plays that much of the
 //! recording, all of it by default, and `--pause` makes the last S seconds of
 //! every EVERY digital silence, a player paused. `--case` names the run in
 //! its line. `--timeline` writes every batch as CSV.
@@ -241,6 +242,9 @@ impl Input {
 /// was last told anything.
 struct Walking {
     walk: BitrateWalk,
+    /// `--held`: no ping is written and no lag told, so the walk hears
+    /// nothing and the rate stays at the ceiling, as no stream's does.
+    held: bool,
     base: Instant,
     hop: Duration,
     desired: u32,
@@ -282,8 +286,15 @@ impl Walking {
     /// zdesk's `note_lag`: behind from now, and the walk told when it is
     /// next told anything.
     fn lag(&mut self) {
-        self.behind = true;
-        self.lagged = true;
+        if !self.held {
+            self.behind = true;
+            self.lagged = true;
+        }
+    }
+
+    /// Whether the writer pings now.
+    fn ping(&mut self, at: Instant) -> bool {
+        !self.held && self.walk().ping(at)
     }
 }
 
@@ -531,7 +542,8 @@ fn main() -> Result<(), Error> {
 
     let ceiling = (ceiling * 1e3) as u32;
     let mut walking = Walking {
-        walk: BitrateWalk::new(ceiling, !held),
+        walk: BitrateWalk::new(ceiling),
+        held,
         base: Instant::now(),
         hop,
         desired: ceiling,
@@ -588,7 +600,7 @@ fn main() -> Result<(), Error> {
             // Skipping, no batch comes to write a ping ahead of: the writer
             // writes one at once, after anything it is writing.
             let at = writing.map_or(now, |until| until.max(now));
-            if walking.walk.skipping() && walking.walk().ping(base + at) {
+            if walking.walk.skipping() && walking.ping(base + at) {
                 pings += 1;
                 let (taken, exit) = socket.write(at, PING_BYTES);
                 browser.arrived = browser.arrived.max(exit + rtt / 2 + socket.delay_at(exit) + wobble());
@@ -643,7 +655,7 @@ fn main() -> Result<(), Error> {
             {
                 progress = true;
                 let mut at = now;
-                if walking.walk().ping(base + at) {
+                if walking.ping(base + at) {
                     pings += 1;
                     let (taken, exit) = socket.write(at, PING_BYTES);
                     browser.arrived = browser.arrived.max(exit + rtt / 2 + socket.delay_at(exit) + wobble());
