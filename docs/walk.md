@@ -219,9 +219,11 @@ and the stalls from 871 s to 164 s, with the floor at 24 kbit/s (below).
 With zdesk's ceiling at 192 kbit/s and a passed stream batched at low
 rates (`bench/walk-batched.jsonl`), 20 s, 133 s and 105 s; with a link
 still behind at the floor skipped too, as v0.0.5 had it
-(`bench/walk-v0.0.5.jsonl`), 19 s, 143 s and 99 s over the same cases; and
-with the round after wlshare's walk below (`bench/walk.jsonl`), 20 s, 139 s
-and 92 s.
+(`bench/walk-v0.0.5.jsonl`), 19 s, 143 s and 99 s; and with the round after
+wlshare's walk below (`bench/walk.jsonl`), 19 s, 138 s and 92 s. Those two
+logs have the longer route's four runs as well, which the earlier logs do
+not; the sums here leave them out, so every sum is over the same 54 runs,
+and the round's own table below is over all 58.
 
 | case | source | sound | walk-v0.0.4 | walk-lag |
 |---|---|---|---|---|

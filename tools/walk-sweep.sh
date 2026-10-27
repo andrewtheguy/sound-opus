@@ -14,13 +14,17 @@
 #
 #     ONLY="base noclimb climb500" WITH="HEAVY_COOLDOWN=Duration::from_secs(2)" tools/walk-sweep.sh OUT
 #
-# The recordings are tools/walk-cases.sh's, under tmp/samples or SAMPLES.
+# OUT holds one run: its binaries and logs from any run before are removed
+# first, so `cat OUT/*.jsonl` is this run's variants and no other's. The
+# recordings are tools/walk-cases.sh's, under tmp/samples or SAMPLES.
 set -eu
 only=${ONLY:-}
 with=${WITH:-}
 repo=$(cd "$(dirname "$0")/.." && pwd)
-mkdir -p "$1/bin"
+mkdir -p "$1"
 out=$(cd "$1" && pwd)
+rm -rf "$out/bin" "$out"/*.jsonl
+mkdir "$out/bin"
 # An OUT inside the repository is not copied into its own crate.
 case $out in
 "$repo"/*) inside="/${out#"$repo"/}" ;;
@@ -28,8 +32,25 @@ case $out in
 esac
 rsync -a --delete --exclude target --exclude .git ${inside:+--exclude "$inside"} "$repo/" "$out/crate/"
 
-# NAME then NAME=VALUE pairs: the walk with each constant set so. A perl
-# substitution, s/.../.../, in place of a pair changes a line of the code.
+# A NAME=VALUE pair sets a constant of walk.rs in $1; a perl substitution,
+# s/.../.../, changes a line of the code.
+set_in() {
+    case $2 in
+    s/*) perl -pi -e "$2" "$1" ;;
+    *) perl -pi -e "s/^((?:pub )?const ${2%%=*}: [^=]*= ).*;/\${1}${2#*=};/" "$1" ;;
+    esac
+}
+
+# The walk every variant starts from: the source, with WITH set on it.
+cp "$repo/src/walk.rs" "$out/with.rs"
+for pair in $with; do
+    set_in "$out/with.rs" "$pair"
+done
+
+# NAME then pairs: the walk with each constant set so, built as OUT/bin/NAME.
+# A variant whose pairs change nothing against the walk the run starts from
+# is a mistake, named and fatal, since its log would be another's.
+built=
 variant() {
     name=$1
     shift
@@ -39,19 +60,17 @@ variant() {
         *) return ;;
         esac
     fi
-    cp "$repo/src/walk.rs" "$out/crate/src/walk.rs"
-    for pair in $with "$@"; do
-        case $pair in
-        s/*) perl -pi -e "$pair" "$out/crate/src/walk.rs" ;;
-        *) perl -pi -e "s/^((?:pub )?const ${pair%%=*}: [^=]*= ).*;/\${1}${pair#*=};/" "$out/crate/src/walk.rs" ;;
-        esac
+    cp "$out/with.rs" "$out/crate/src/walk.rs"
+    for pair in "$@"; do
+        set_in "$out/crate/src/walk.rs" "$pair"
     done
-    if [ $# -gt 0 ] && [ -z "$with" ] && cmp -s "$repo/src/walk.rs" "$out/crate/src/walk.rs"; then
+    if [ $# -gt 0 ] && cmp -s "$out/with.rs" "$out/crate/src/walk.rs"; then
         echo "$name changed nothing" >&2
         exit 1
     fi
     (cd "$out/crate" && CARGO_TARGET_DIR="$out/target" cargo build -q --release --example walk-sim)
     cp "$out/target/release/examples/walk-sim" "$out/bin/$name"
+    built="$built $name"
 }
 
 ms() { echo "Duration::from_millis($1)"; }
@@ -107,13 +126,16 @@ variant spacing180 PING_SPACING="$(ms 180)"
 # Every item of this round off: the walk as v0.0.5 had it.
 variant v0.0.5 CLIMB_SPAN="$(secs 3)" HEAVY_COOLDOWN="$(secs 2)" PING_SPACING="$(ms 0)"
 
-# Four at a time.
+if [ -z "$built" ]; then
+    echo "ONLY names no variant of this script: $only" >&2
+    exit 1
+fi
+
+# This run's variants, four at a time.
 cd "$repo"
 n=0
-for bin in "$out"/bin/*; do
-    name=$(basename "$bin")
-    [ -n "$only" ] && case " $only " in *" $name "*) ;; *) continue ;; esac
-    SIM=$bin tools/walk-cases.sh | sed "s/^{/{\"variant\":\"$name\",/" > "$out/$name.jsonl" &
+for name in $built; do
+    SIM=$out/bin/$name tools/walk-cases.sh | sed "s/^{/{\"variant\":\"$name\",/" > "$out/$name.jsonl" &
     n=$((n + 1))
     [ $((n % 4)) -eq 0 ] && wait
 done

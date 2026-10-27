@@ -442,6 +442,10 @@ impl BitrateWalk {
     /// heard at the next pong or tick, if longer than its lag; the bytes say
     /// whether the sound behind the next ping was quiet, under half the
     /// rate's share, which a clear pong then is no evidence of room through.
+    /// Told as the pump hands a batch to the socket's writer, before the
+    /// writer pings ahead of it, so the ping ahead of a batch counts that
+    /// batch with the ones before: one batch off, the same in the simulator,
+    /// and nothing to a flag read over spans of a second.
     pub fn sent(&mut self, blocked: Duration, packets: u32, bytes: usize) {
         if self.adaptive {
             self.blocked = self.blocked.max(blocked);
