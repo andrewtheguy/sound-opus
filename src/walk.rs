@@ -38,8 +38,8 @@
 //!
 //! The walk also says what a sender may drop to catch up. While the link is
 //! *behind*, silence is free to shed before the encoder: it drains a backlog by
-//! exactly that much and loses nothing anyone hears. A lag past [`SKIP_LAG`]
-//! is sound queued that would be heard that late — at the floor any lag
+//! exactly that much and loses nothing anyone hears. A lag past 200 ms is
+//! sound queued that would be heard that late — at the floor any lag
 //! behind, no rate being left to drain it — and the walk is
 //! *skipping* ([`BitrateWalk::skipping`]): the sender drops what comes next
 //! and pings back to back until a pong says the queue has drained, so what is
@@ -367,9 +367,9 @@ impl BitrateWalk {
     }
 
     /// Whether to skip what arrives now: drop it before the encoder, or a
-    /// unit before the socket, because a lag past [`SKIP_LAG`] says that
-    /// much is queued, until a pong says it has drained. Never on a walk that
-    /// is not adaptive.
+    /// unit before the socket, because a lag past 200 ms says that much is
+    /// queued, or at the floor a link is still behind, until a pong says it
+    /// has drained. Never on a walk that is not adaptive.
     pub fn skipping(&self) -> bool {
         self.skipping.is_some()
     }
