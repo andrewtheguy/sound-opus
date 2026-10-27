@@ -198,7 +198,10 @@ impl Socket {
             let end = self.taken + segment;
             let sent = now.max(self.acked_at(end.saturating_sub(self.window(now))));
             exit = self.link.pass(sent, segment);
-            self.segments.push(Segment { end, acked: exit + self.rtt + self.delay_at(exit) });
+            // Acknowledgements are cumulative: a segment is never acked before
+            // the one ahead of it, even where the path's delay fell between.
+            let acked = (exit + self.rtt + self.delay_at(exit)).max(self.segments.last().map_or(Duration::ZERO, |s| s.acked));
+            self.segments.push(Segment { end, acked });
             self.taken = end;
             left -= segment;
         }

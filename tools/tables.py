@@ -13,7 +13,7 @@ recording counting once; and the shares of CELT and fullband packets. Given
 `--against`, every other setting over that one, rate by rate: the time and
 the bytes as ratios, the proxies as differences. Given `--before`, the log
 of the run before, its cells beside this run's where the setting and rate
-are in both. Then the recordings one by one and the made sounds, a grid of
+are in both, over the recordings both have. Then the recordings one by one and the made sounds, a grid of
 rates for each figure, of the first setting in the log, or of `--against`'s.
 A ratio is the setting over the other, a difference the setting less the
 other; green is the side of the line that is better, and a ratio of 1.00 or
@@ -25,6 +25,7 @@ import re
 import sys
 
 KINDS = ["music", "speech", "tone", "noise", "silence"]
+
 SEPARATOR = re.compile(r"[\\/]")
 
 RECORDINGS = [
@@ -48,8 +49,10 @@ RECORDINGS = [
 
 def read(path):
     """setting -> kbit -> sound -> the line's fields, a sound being a made
-    sound's kind or a recording's file name without its folders, so that two
-    logs' lines meet; and the settings in the order the log has them."""
+    sound's kind or a recording's path under the recordings' folder, which
+    every log names it by, so that two logs' lines meet and two recordings
+    of one name in different folders do not; and the settings in the order
+    the log has them."""
     data, settings = collections.defaultdict(lambda: collections.defaultdict(dict)), []
     for number, line in enumerate(open(path), 1):
         if not line.strip():
@@ -58,7 +61,7 @@ def read(path):
             f = json.loads(line)
         except json.JSONDecodeError as e:
             sys.exit(f"{path}:{number}: not a JSON object a line: {e}")
-        sound = SEPARATOR.split(f["file"])[-1] if "file" in f else f["kind"]
+        sound = f["file"] if "file" in f else f["kind"]
         f["recording"] = "file" in f
         data[f["setting"]][int(f["kbit"])][sound] = f
         if f["setting"] not in settings:
@@ -68,11 +71,17 @@ def read(path):
 
 def order(sounds):
     """Recordings in the order of RECORDINGS, any other after them."""
-    return sorted(sounds, key=lambda name: next((i for i, (key, _) in enumerate(RECORDINGS) if key in name), len(RECORDINGS)))
+    return sorted(sounds, key=lambda name: next((i for i, (key, _) in enumerate(RECORDINGS) if key in file_name(name)), len(RECORDINGS)))
 
 
 def recording_name(file):
-    return next((label for key, label in RECORDINGS if key in file), f"`{file}`")
+    return next((label for key, label in RECORDINGS if key in file_name(file)), f"`{file}`")
+
+
+def file_name(path):
+    """A recording's file name without its folders, which RECORDINGS names it
+    by: a folder's name may hold another recording's."""
+    return SEPARATOR.split(path)[-1]
 
 
 def colour(text, good):
@@ -180,14 +189,18 @@ def against(data, setting, reference):
 
 def before_table(data, settings, before):
     print("## Against the run before\n")
-    print("The recordings taken together, this run's cell beside the run before's, where\nthe setting and rate are in both: the time a block as this run over that one,\nthe proxies as this run less that one.\n")
+    print("The recordings taken together, this run's cell beside the run before's, where\nthe setting and rate are in both, over the recordings both have: the time a\nblock as this run over that one, the proxies as this run less that one.\n")
     print("| Setting | Rate, kbit/s | Before, µs | Now, µs | Time | Before, kbit/s | Now, kbit/s | LSD | Side LSD | SegSNR |")
     print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for setting in settings:
         for rate in sorted(data[setting]):
             if rate not in before.get(setting, {}):
                 continue
-            a, b = summary(data[setting][rate]), summary(before[setting][rate])
+            # The recordings both runs have, so a difference is never one
+            # of their inputs.
+            both = data[setting][rate].keys() & before[setting][rate].keys()
+            a = summary({sound: data[setting][rate][sound] for sound in both})
+            b = summary({sound: before[setting][rate][sound] for sound in both})
             if a is None or b is None:
                 continue
             print(f"| `{setting}` | {rate} | {us(b['us'])} | {us(a['us'])} | {ratio(a['us'], b['us'])} | {b['kbit']:.1f} | {a['kbit']:.1f} | {difference(a['lsd'], b['lsd'], True)} | {difference(a['lsd_side'], b['lsd_side'], True)} | {difference(a['segsnr'], b['segsnr'], False)} |")

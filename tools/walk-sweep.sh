@@ -1,18 +1,24 @@
 #!/bin/sh
 # Every constant of src/walk.rs moved one way and the other: for each, a copy
-# of the crate with that one line changed, built, and the cases run on it.
-# The figures on the constants' comments are these logs against base.jsonl,
-# the walk as it is (docs/walk.md):
+# of the crate with that one line changed, built, and the cases run on it,
+# every line of a log marked with its variant. The figures on the constants'
+# comments are each against `base`, the walk as it is (docs/walk.md):
 #
 #     tools/walk-sweep.sh OUT
-#     python3 -I tools/walk.py OUT/base.jsonl OUT/*.jsonl
+#     cat OUT/*.jsonl > walk-sweep.jsonl
+#     python3 -I tools/walk.py --sweep walk-sweep.jsonl
 #
 # The recordings are tools/walk-cases.sh's, under tmp/samples or SAMPLES.
 set -eu
-out=$1
 repo=$(cd "$(dirname "$0")/.." && pwd)
-mkdir -p "$out/bin"
-rsync -a --delete --exclude target --exclude .git "$repo/" "$out/crate/"
+mkdir -p "$1/bin"
+out=$(cd "$1" && pwd)
+# An OUT inside the repository is not copied into its own crate.
+case $out in
+"$repo"/*) inside="/${out#"$repo"/}" ;;
+*) inside= ;;
+esac
+rsync -a --delete --exclude target --exclude .git ${inside:+--exclude "$inside"} "$repo/" "$out/crate/"
 
 # NAME then NAME=VALUE pairs: the walk with each constant set so.
 variant() {
@@ -65,7 +71,8 @@ variant floor16 BITRATE_FLOOR=16_000
 cd "$repo"
 n=0
 for bin in "$out"/bin/*; do
-    SIM=$bin tools/walk-cases.sh > "$out/$(basename "$bin").jsonl" &
+    name=$(basename "$bin")
+    SIM=$bin tools/walk-cases.sh | sed "s/^{/{\"variant\":\"$name\",/" > "$out/$name.jsonl" &
     n=$((n + 1))
     [ $((n % 4)) -eq 0 ] && wait
 done

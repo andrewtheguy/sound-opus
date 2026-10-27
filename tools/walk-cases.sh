@@ -6,10 +6,12 @@
 # run of the same cases:
 #
 #     cargo build --release --example walk-sim
-#     tools/walk-cases.sh --signal lag > walk.jsonl
+#     tools/walk-cases.sh > walk.jsonl
 #
 # The recordings are sound-flac's, under tmp/samples or SAMPLES. The
-# simulation is deterministic, so any machine gives the same lines.
+# simulation is deterministic: one architecture gives the same lines on any
+# machine, but libopus codes a little differently on ARM and on x86
+# (docs/walk.md).
 set -eu
 samples=${SAMPLES:-tmp/samples}
 sim=${SIM:-target/release/examples/walk-sim}
