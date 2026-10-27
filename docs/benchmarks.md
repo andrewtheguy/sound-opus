@@ -260,6 +260,87 @@ the settings side by side.
 | `c9-audio-cvbr` | 155 | 0.77% | 246 | 320.0 | 326.8 | 1209 | 0.14 | 0.56 | 26.68 | 100% | 100% |
 | `c10-audio-cvbr` | 155 | 0.77% | 236 | 320.0 | 326.8 | 1209 | 0.14 | 0.56 | 26.68 | 100% | 100% |
 
+## Application
+
+Item 3: `OPUS_APPLICATION_AUDIO`, the crate's, against
+`OPUS_APPLICATION_RESTRICTED_LOWDELAY`, both at complexity 10 and
+constrained VBR, at every rate of the baseline, in one run on lab2:
+`docs/bench/lab2-application.jsonl`, the packets under
+`2026-10-26/application/`. libopus 1.6.1's `RESTRICTED_CELT` codes as low
+delay does, without SILK's state (`src/opus_encoder.c:1470`, `:1903`), so it
+is not measured apart.
+
+```sh
+SETTINGS=c10-audio-cvbr,c10-lowdelay-cvbr ... bench
+```
+
+Low delay codes every packet as CELT and drops the 4 ms of delay
+compensation in front of it: its lookahead is 120 samples, 2.5 ms, against
+`PRE_SKIP`'s 312, 6.5 ms. Its analysis still runs, so it picks the same
+bandwidths.
+
+### What it says
+
+**`AUDIO` stays: from 64 kbit/s up the two are one encoder, and under it
+low delay gives up SILK for 4 ms.** From 64 kbit/s up, where `AUDIO` codes
+everything as CELT anyway, the two cost the same to 0.4 % of mean block, come to the same rate and peak, and have the same LSD and side LSD
+to 0.01 dB; their SegSNR differs by 0.03 to 0.05 dB. At 32 and 48 kbit/s
+low delay is 0.71 and 0.75 of `AUDIO`'s mean block and 0.37 and 0.40 of
+its worst 99th percentile (128 µs against 341 at 32 kbit/s), because it
+codes the readings as CELT: Leviticus at 91 µs a block against 193, its
+SegSNR 12.0 dB against 14.9 and its LSD 1.30 against 1.68; JFK's SegSNR
+13.9 against 15.0, the Raven's 17.8 against 18.8. Every other recording is
+within 0.16 dB of SegSNR, but the station, 0.8 dB better at 32 kbit/s. That is the split
+complexity under 7 showed, the same choice libopus's analysis makes for
+speech, given up.
+
+What low delay buys is 4 ms of latency. Neither user is bound by it: zdesk
+hands the browser a batch of 186 ms of RDP sound at a time, the browser
+plays with a lead of up to 300 ms, and wlshare's blocks share one TCP
+connection with the pixels. Taking it would change `PRE_SKIP`,
+and every user's `OpusHead` with it, for nothing a listener of these
+streams hears; what it saves at the floor is 0.19 % of a core, 0.5 % on a reading.
+
+### The tables
+
+The recordings together, low delay against `AUDIO` and on its own; `AUDIO`'s
+are the baseline's.
+
+#### `c10-lowdelay-cvbr` against `c10-audio-cvbr`
+
+Time and bytes as this setting over the other; the proxies as this setting
+less the other.
+
+| Rate, kbit/s | Time | 99th | Came to | Peak | 99th packet | LSD | Side LSD | SegSNR | CELT, this | CELT, other |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 32 | $\color{green}{0.71}$ | $\color{green}{0.37}$ | $\color{red}{1.01}$ | $\color{green}{0.93}$ | $\color{green}{0.99}$ | $\color{green}{-0.12}$ | $\color{red}{+0.09}$ | $\color{red}{-0.24}$ | 100% | 69% |
+| 48 | $\color{green}{0.75}$ | $\color{green}{0.40}$ | $\color{red}{1.01}$ | $\color{green}{0.94}$ | 1.00 | $\color{green}{-0.10}$ | $\color{red}{+0.02}$ | $\color{red}{-0.18}$ | 100% | 72% |
+| 64 | 1.00 | $\color{green}{0.98}$ | 1.00 | 1.00 | 1.00 | -0.00 | -0.00 | $\color{green}{+0.05}$ | 100% | 100% |
+| 96 | 1.00 | 1.00 | 1.00 | 1.00 | 1.00 | -0.00 | $\color{green}{-0.01}$ | $\color{green}{+0.05}$ | 100% | 100% |
+| 128 | 1.00 | $\color{green}{0.99}$ | 1.00 | 1.00 | 1.00 | +0.00 | -0.00 | $\color{green}{+0.05}$ | 100% | 100% |
+| 160 | 1.00 | $\color{red}{1.08}$ | 1.00 | 1.00 | 1.00 | -0.00 | -0.00 | $\color{green}{+0.05}$ | 100% | 100% |
+| 192 | 1.00 | $\color{red}{1.08}$ | 1.00 | 1.00 | 1.00 | +0.00 | -0.00 | $\color{green}{+0.05}$ | 100% | 100% |
+| 256 | 1.00 | $\color{red}{1.02}$ | 1.00 | 1.00 | 1.00 | -0.00 | -0.00 | $\color{green}{+0.03}$ | 100% | 100% |
+| 320 | 1.00 | $\color{red}{1.01}$ | 1.00 | 1.00 | 1.00 | +0.00 | -0.00 | $\color{green}{+0.03}$ | 100% | 100% |
+
+#### `c10-lowdelay-cvbr`
+
+15 recordings, 103 minutes of sound. A block is 20 ms; *of one core* is the mean block over
+20 ms. The 99th-percentile and worst blocks are the worst recording's.
+*Peak* is the most any second of any recording came to.
+
+| Rate, kbit/s | µs a block | Of one core | 99th, µs | Worst, µs | Came to, kbit/s | Peak, kbit/s | 99th packet, bytes | LSD, dB | Side LSD, dB | SegSNR, dB | CELT | Fullband |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 32 | 89.3 | 0.45% | 128 | 1572 | 32.4 | 33.0 | 122 | 1.46 | 7.01 | 11.65 | 100% | 83% |
+| 48 | 94.7 | 0.47% | 136 | 1581 | 48.3 | 49.4 | 183 | 1.18 | 6.04 | 13.70 | 100% | 83% |
+| 64 | 102 | 0.51% | 145 | 1582 | 64.3 | 65.7 | 243 | 0.98 | 4.92 | 15.27 | 100% | 83% |
+| 96 | 116 | 0.58% | 175 | 1620 | 96.3 | 98.3 | 360 | 0.52 | 3.38 | 18.55 | 100% | 100% |
+| 128 | 128 | 0.64% | 193 | 1597 | 128.3 | 131.0 | 481 | 0.39 | 2.06 | 20.74 | 100% | 100% |
+| 160 | 139 | 0.69% | 228 | 1664 | 160.2 | 163.6 | 602 | 0.32 | 1.34 | 22.20 | 100% | 100% |
+| 192 | 144 | 0.72% | 231 | 1662 | 192.2 | 196.2 | 722 | 0.27 | 1.07 | 23.38 | 100% | 100% |
+| 256 | 151 | 0.75% | 234 | 4167 | 256.1 | 261.5 | 966 | 0.20 | 0.77 | 25.38 | 100% | 100% |
+| 320 | 155 | 0.77% | 241 | 1666 | 320.0 | 326.8 | 1210 | 0.14 | 0.56 | 26.71 | 100% | 100% |
+
 ## The baseline: the recordings together
 
 ### `crate`
