@@ -8,7 +8,7 @@
 //! walk-sim RECORDING [--source rdp|wlshare] [--link KBPS[,KBPS@SECS...]]
 //!          [--rtt MS] [--jitter MS] [--delay MS[,MS@SECS...]] [--queue MS]
 //!          [--sndbuf KB] [--hop MS] [--hop-link MBPS] [--burst KB@SECS[,...]]
-//!          [--passed-lag] [--ceiling KBPS] [--held] [--secs S]
+//!          [--passed-lag] [--batch-below KBPS,MS] [--ceiling KBPS] [--held] [--secs S]
 //!          [--pause S,EVERY] [--case NAME] [--timeline FILE]
 //! ```
 //!
@@ -17,7 +17,11 @@
 //! `wlshare`, 20 ms units wlshare codes itself at the rate the gateway names,
 //! `--hop` away (the round trip, 1 ms) over a connection of `--hop-link`
 //! Mbit/s (1000) that carries the pictures too, `--burst` writing a picture
-//! of so many KB on it at a time. `--passed-lag` hands a passed stream's
+//! of so many KB on it at a time. `--batch-below` holds a passed stream's
+//! units at the gateway while the walk's rate is KBPS or less, until they
+//! come to MS of sound, so a message's framing is not paid on every 20 ms of
+//! a stream coded small: 64 and 60 by default, as zdesk batches them, and
+//! `0,0` sends what is queued at each send. `--passed-lag` hands a passed stream's
 //! dropped units to the walk, as an RDP stream's dropped buffers are.
 //!
 //! `--link` is the browser's link in kbit/s, what the sound's connection gets
@@ -38,7 +42,7 @@
 //! blocked; and while the walk is skipping, the pump drops what comes and the
 //! writer pings again as each pong is back.
 //!
-//! `--ceiling` is the rate the walk starts at and never passes, 320 kbit/s as
+//! `--ceiling` is the rate the walk starts at and never passes, 192 kbit/s as
 //! zdesk sets it; `--held` holds it there. `--secs` plays that much of the
 //! recording, all of it by default, and `--pause` makes the last S seconds of
 //! every EVERY digital silence, a player paused. `--case` names the run in
@@ -430,7 +434,8 @@ fn main() -> Result<(), Error> {
     let mut link_arg = "1000".to_string();
     let (mut rtt, mut jitter, mut queue, mut sndbuf, mut hop, mut hop_link) = (40.0, 0.0, 100.0, 85.0, 1.0, 1000.0);
     let (mut rdp, mut passed_lag, mut held) = (true, false, false);
-    let (mut ceiling, mut secs, mut pause) = (320.0, None, None);
+    let (mut ceiling, mut secs, mut pause) = (192.0, None, None);
+    let mut batch_below = (64_000u32, Duration::from_millis(60));
     let mut delay_arg = "0".to_string();
     let mut bursts: Vec<(Duration, u64)> = Vec::new();
     let (mut case, mut timeline) = (String::new(), None);
@@ -462,6 +467,11 @@ fn main() -> Result<(), Error> {
             }
             "--passed-lag" => passed_lag = true,
             "--ceiling" => ceiling = number(&arg, &value()?)?,
+            "--batch-below" => {
+                let v = value()?;
+                let (kbps, hold) = v.split_once(',').ok_or("--batch-below KBPS,MS")?;
+                batch_below = ((number(&arg, kbps)? * 1e3) as u32, ms(number(&arg, hold)?));
+            }
             "--held" => held = true,
             "--secs" => secs = Some(number(&arg, &value()?)?),
             "--pause" => {
@@ -540,6 +550,8 @@ fn main() -> Result<(), Error> {
     let mut channel: VecDeque<Vec<Packet>> = VecDeque::new();
     // The pump, blocked on the channel since when, with its batch.
     let mut pump: Option<(Duration, Vec<Packet>)> = None;
+    // Passed units the pump holds for a batch, since when.
+    let mut holding: Option<(Duration, Vec<Packet>)> = None;
     // The writer, busy until when.
     let mut writing: Option<Duration> = None;
     // When the pong of the ping in flight is back.
@@ -657,11 +669,11 @@ fn main() -> Result<(), Error> {
                 }
             }
             // The pump reads the next buffer or units, and sends the packets.
+            let mut batch = Vec::new();
             if pump.is_none()
                 && let Some(input) = broadcast.queue.pop_front()
             {
                 progress = true;
-                let mut batch = Vec::new();
                 if walking.walk.skipping() {
                     skipped += input.length();
                     broadcast.joined = false;
@@ -686,23 +698,34 @@ fn main() -> Result<(), Error> {
                                 }
                             }
                         }
-                        Input::Unit(unit) => {
-                            batch.push(unit);
+                        Input::Unit(mut unit) => {
+                            unit.joined &= broadcast.joined;
+                            broadcast.joined = true;
+                            let (_, held) = holding.get_or_insert_with(|| (now, Vec::new()));
+                            held.push(unit);
                             while let Some(Input::Unit(_)) = broadcast.queue.front() {
                                 let Some(Input::Unit(unit)) = broadcast.queue.pop_front() else { unreachable!() };
-                                batch.push(unit);
+                                held.push(unit);
                             }
-                            batch[0].joined &= broadcast.joined;
-                            broadcast.joined = true;
                         }
                     }
                 }
-                if !batch.is_empty() {
-                    if channel.len() < CHANNEL_DEPTH {
-                        channel.push_back(batch);
-                    } else {
-                        pump = Some((now, batch));
-                    }
+            }
+            // Units held go once the rate is over the batching one, or they
+            // come to enough sound, or the first has waited that long.
+            if pump.is_none()
+                && holding.as_ref().is_some_and(|(since, held)| {
+                    walking.desired > batch_below.0 || PACKET * held.len() as u32 >= batch_below.1 || now >= *since + batch_below.1
+                })
+            {
+                progress = true;
+                batch = holding.take().unwrap().1;
+            }
+            if !batch.is_empty() {
+                if channel.len() < CHANNEL_DEPTH {
+                    channel.push_back(batch);
+                } else {
+                    pump = Some((now, batch));
                 }
             }
             if !progress {
@@ -719,10 +742,11 @@ fn main() -> Result<(), Error> {
         }
         // The next thing to happen.
         let due = walking.walk.next_tick().map(|due| due.saturating_duration_since(base));
-        let next = [source_at(produced), on_hop.front().map(|(t, _)| *t), writing, pong, due].into_iter().flatten().filter(|t| *t > now).min();
+        let flush = holding.as_ref().map(|(since, _)| *since + batch_below.1);
+        let next = [source_at(produced), on_hop.front().map(|(t, _)| *t), writing, pong, due, flush].into_iter().flatten().filter(|t| *t > now).min();
         match next {
             Some(t) => now = t,
-            None if broadcast.queue.is_empty() && channel.is_empty() && pump.is_none() => break,
+            None if broadcast.queue.is_empty() && channel.is_empty() && pump.is_none() && holding.is_none() => break,
             None => return Err("the simulation stalled with sound still queued".into()),
         }
     }
@@ -731,7 +755,7 @@ fn main() -> Result<(), Error> {
     }
     let path = walking.path.iter().map(|(t, rate)| format!("{}@{:.1}", rate / 1000, t.as_secs_f64())).collect::<Vec<_>>().join(" ");
     println!(
-        "{{\"case\":{},\"recording\":{},\"source\":\"{}\",\"link\":\"{link_arg}\",\"rtt\":{},\"jitter\":{},\"queue\":{},\"delay\":\"{delay_arg}\",\"sndbuf\":{sndbuf},\"passed_lag\":{passed_lag},\"held\":{held},\"ceiling\":{},\"pause\":{},\"secs\":{:.1},\
+        "{{\"case\":{},\"recording\":{},\"source\":\"{}\",\"link\":\"{link_arg}\",\"rtt\":{},\"jitter\":{},\"queue\":{},\"delay\":\"{delay_arg}\",\"sndbuf\":{sndbuf},\"passed_lag\":{passed_lag},\"batch_below\":[{},{}],\"held\":{held},\"ceiling\":{},\"pause\":{},\"secs\":{:.1},\
 \"rate_mean\":{:.1},\"rate_p10\":{:.0},\"late_p50\":{:.0},\"late_p95\":{:.0},\"late_max\":{:.0},\"heard\":{:.2},\"dropped\":{:.2},\"gaps\":{},\"skipped\":{:.2},\"trimmed\":{:.2},\"shed\":{:.2},\"stalls\":{},\"stalled\":{:.2},\"behind\":{:.2},\"moves\":{},\"downs\":{},\"first_down\":{},\"path\":{}}}",
         json(&case),
         json(&name),
@@ -739,6 +763,8 @@ fn main() -> Result<(), Error> {
         rtt.as_millis(),
         jitter,
         queue,
+        batch_below.0 / 1000,
+        batch_below.1.as_millis(),
         ceiling / 1000,
         pause.map_or("null".into(), |(s, every)| format!("[{s},{every}]")),
         frames as f64 / 48_000.0,

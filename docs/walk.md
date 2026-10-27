@@ -59,7 +59,7 @@ the other two, and silence is the one thing the gateway sheds:
 |---|---|
 | room | 1000 kbit/s throughout |
 | room-jitter, room-jitter100 | the same, up to 60 or 100 ms more on any message, as a Wi-Fi hop adds |
-| narrow, narrow-jitter | 1000, then 200 from 10 s, under the 320 kbit/s ceiling; and with 60 ms of jitter |
+| narrow, narrow-jitter | 1000, then 200 from 10 s; and with 60 ms of jitter |
 | narrower | 1000, then 100 from 10 s |
 | recover | 1000, 150 from 10 s, 1000 again from 25 s |
 | wobble | swinging between 450 and 250 every 3 s |
@@ -129,7 +129,8 @@ its first block comes at 5.2 s, the longest is 1.2 s, and the sound is
 
 v0.0.4's walk heard each batch's send: blocked 20 ms or more was behind,
 two of the last four a verdict (`bench/walk-v0.0.4.jsonl`, the left column
-below). On these cases:
+below). These runs, and the walk's against them below, are at the ceiling
+zdesk had then, 320 kbit/s. On these cases:
 
 - A link narrowed from 1000 to 200 kbit/s was first stepped down 10.7 s
   after, on music over RDP, and in the three other runs never: the sound was
@@ -210,8 +211,9 @@ On the same cases (`bench/walk-lag.jsonl`, the right column):
 
 Over every case the 95th-percentile lateness summed falls from 433 s to
 21 s, the sound lost from 490 s to 190 s (skipped, now, under the floors),
-and the stalls from 871 s to 164 s. These are with the floor at 24 kbit/s,
-below.
+and the stalls from 871 s to 164 s, with the floor at 24 kbit/s (below).
+With zdesk's ceiling at 192 kbit/s and a passed stream batched at low
+rates, as it is now (`bench/walk.jsonl`), 20 s, 133 s and 105 s.
 
 | case | source | sound | walk-v0.0.4 | walk-lag |
 |---|---|---|---|---|
@@ -276,59 +278,109 @@ below.
 | walk-v0.0.4 | 302 | 433160 | 474270 | 489.8 | 871.2 | 58 |
 | walk-lag | 219 | 21320 | 77241 | 190.4 | 164.4 | 478 |
 
+## The ceiling
+
+zdesk's ceiling was 320 kbit/s, the rate of a Mac's own AAC-ELD.
+`benchmarks.md` found a stereo stream within 0.13 dB of it per channel at
+192 by the proxies, and left whether a lower ceiling helps the walk to here.
+It does: on the same cases with the ceiling at 192
+(`bench/walk-ceiling192.jsonl`, against `bench/walk-lag.jsonl`), 16% less
+sound lost, 19% less stalled, the worst lateness summed 48 s against 77, and
+27% fewer moves; a link swinging between 250 and 450 kbit/s is never walked
+at all. The rate is lower, 153 kbit/s on average against 219, most of it
+the links with room held at 192 rather than 320, and under the dips 103 to
+151 against 163 to 254. zdesk's ceiling is 192 kbit/s now, and every run
+from here is at it.
+
+## A passed stream's units, batched
+
+Every unit of a passed stream was a WebSocket message of its own in a TLS
+record of its own: about 30 bytes of framing on a packet of 60 at 24 kbit/s,
+so the floor cost 36 kbit/s of the link, where an RDP buffer's nine packets
+in one message cost 25, and between the floors wlshare's sound lost 13 to
+18 s of the minute against RDP's 4 to 9. zdesk now holds a passed stream's
+units while the walk's rate is 64 kbit/s or less, until a message carries
+three of them, 60 ms (`walk-sim --batch-below 64,60`, the default).
+
+The rule is the rate's, not the bytes': held until the units came to so
+many bytes, a paused desktop's 3-byte units of silence were held at every
+rate, and the browser, which plays from when sound arrives, kept the delay
+on links with room too. Held on the rate, nothing changes above it. The
+thresholds and holds tried (`bench/walk-batch.jsonl`), 48, 64 and
+96 kbit/s by 40, 60 and 100 ms: 48 and 64 measure the same, 96 begins to
+hold where a link narrowed; 40 ms cut what wlshare lost at the floors by
+21%, 60 by 30% and 100 by 39%, for 48, 77 and 162 ms more median lateness
+there. Against each send taking what is queued
+(`bench/walk.jsonl` against `bench/walk-ceiling192.jsonl`):
+
+| case | source | sound | unbatched | batched |
+|---|---|---|---|---|
+| | | | kbit/s, late p95/max ms, lost s, stalled s | kbit/s, late p95/max ms, lost s, stalled s |
+| between-floors | wlshare | music | 55, 405/2040, 18.2, 13.7 | 55, 352/2040, 8.6, 5.8 |
+| between-floors | wlshare | speech | 56, 378/1979, 13.0, 10.1 | 57, 363/1979, 7.0, 5.5 |
+| under-floor | wlshare | music | 55, 718/3750, 32.4, 26.8 | 55, 634/3750, 28.9, 20.2 |
+| under-floor | wlshare | speech | 55, 649/3628, 28.4, 22.6 | 55, 624/3628, 20.3, 14.6 |
+
+Between the floors wlshare's sound now loses 7 to 9 s, as RDP's does, and
+is heard no later at the 95th percentile, 0.35 to 0.36 s against 0.38 to
+0.41; over every case 17% less sound is lost and 21% less stalled. Where
+the walk touches 64 kbit/s on its way elsewhere, on the narrowest link and
+under the dips, nothing moves by more than 6 ms of lateness.
+
 ## The constants
 
 `tools/walk-sweep.sh` builds the crate with each constant moved one way and
-the other and runs every case on it (`bench/walk-sweep.jsonl`, a line a
-case and variant). Against the walk as it is, over every case and over
-those where a link narrowed, swung or dipped — every case but the jittery
-ones and the floors' — and the range of rates held on the jittery ones:
+the other and runs every case on it, at zdesk's ceiling and batching
+(`bench/walk-sweep.jsonl`, a line a case and variant). Against the walk as
+it is, over every case and over those where a link narrowed, swung or
+dipped — every case but the jittery ones and the floors' — and the range of
+rates held on the jittery ones:
 
 | Variant | Rate | Lost | Late p95 | Moves | Rate, narrowed | Lost, narrowed | Late p95, narrowed | Stalled, narrowed | Moves, narrowed | kbit/s, jittery |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| base | +0% | +0% | +0% | +0% | +0% | +0% | +0% | +0% | +0% | 197–320 |
-| behind150 | +3% | +24% | +6% | +1% | +4% | +123% | +7% | +64% | +2% | 201–320 |
-| behind20 | -25% | -4% | -7% | +2% | -1% | -14% | -6% | -15% | -0% | 41–59 |
-| behind60 | -9% | -1% | -2% | +7% | +0% | -7% | -2% | -8% | +2% | 50–320 |
-| behind80 | -7% | +0% | -0% | +7% | +1% | -0% | -0% | -3% | +1% | 68–320 |
-| clear25 | +0% | -0% | -1% | -3% | +0% | +3% | +0% | +1% | -0% | 197–320 |
-| cool1 | -1% | -3% | -2% | +1% | -1% | -18% | -3% | -9% | +1% | 192–320 |
-| cool3 | +0% | +2% | +0% | -3% | +0% | +3% | +0% | +2% | -4% | 193–320 |
-| down34 | +2% | +5% | +1% | +1% | +3% | +23% | +1% | +11% | -1% | 200–320 |
-| floor16 | -1% | -20% | -6% | +2% | +0% | +0% | +0% | +0% | +0% | 197–320 |
-| floor32 | +1% | +21% | +6% | -4% | +0% | +0% | +0% | +0% | +0% | 197–320 |
-| hearings3 | +2% | +6% | +2% | -1% | +3% | +24% | +3% | +15% | -1% | 197–320 |
-| heavy300 | +3% | +7% | +1% | +1% | +4% | +39% | +2% | +19% | +1% | 198–320 |
-| hold30 | -2% | -2% | -2% | -15% | -2% | -9% | -2% | -7% | -13% | 197–320 |
-| hold5 | +3% | +4% | +2% | +16% | +4% | +21% | +1% | +11% | +15% | 198–320 |
-| nooverdue | +6% | +48% | +353% | -11% | +2% | +26% | +0% | +21% | -9% | 191–320 |
-| noskip | -8% | -71% | +1096% | +1% | -11% | -100% | +72% | +1% | +8% | 187–320 |
-| onestep | +3% | +14% | +4% | +5% | +4% | +46% | +2% | +24% | +1% | 198–320 |
-| overdue200 | +0% | +6% | +2% | -3% | +1% | +15% | +1% | +9% | -3% | 193–320 |
-| overdue50 | +1% | -2% | +0% | +2% | +2% | -3% | +0% | -2% | +2% | 198–320 |
-| skip150 | +0% | +5% | -5% | +1% | +0% | +24% | -3% | +5% | +1% | 193–320 |
-| skip300 | -0% | -7% | +7% | -5% | -1% | -29% | +4% | -9% | -3% | 193–320 |
-| span2 | +3% | +5% | +2% | +21% | +4% | +26% | +2% | +17% | +20% | 198–320 |
-| span5 | -4% | -4% | -2% | -21% | -6% | -26% | -4% | -19% | -20% | 193–320 |
-| together | -5% | -7% | -5% | -33% | -8% | -37% | -7% | -27% | -33% | 190–320 |
-| up32 | -2% | -0% | -1% | +5% | -3% | -5% | -1% | -7% | +5% | 193–320 |
-| up8 | +1% | +4% | +3% | +4% | +1% | +18% | +2% | +11% | +3% | 194–320 |
+| base | +0% | +0% | +0% | +0% | +0% | +0% | +0% | +0% | +0% | 169–192 |
+| behind150 | +3% | +22% | +3% | -1% | +4% | +221% | +3% | +86% | -4% | 170–192 |
+| behind20 | -22% | -5% | -8% | +7% | +1% | -6% | -9% | -13% | +0% | 32–42 |
+| behind60 | -7% | -5% | -2% | +9% | +1% | -6% | -2% | -5% | +2% | 37–192 |
+| behind80 | -6% | -5% | -1% | +6% | +1% | -9% | -1% | -4% | +0% | 46–192 |
+| clear25 | +0% | -3% | -1% | -3% | -0% | +4% | -0% | +1% | -0% | 167–192 |
+| cool1 | -1% | -5% | -2% | +0% | -1% | -13% | -2% | -7% | +2% | 169–192 |
+| cool3 | +0% | -1% | -0% | -5% | +0% | +13% | +0% | +4% | -3% | 170–192 |
+| down34 | +2% | +1% | -2% | +0% | +2% | +14% | -2% | +8% | +1% | 176–192 |
+| floor16 | -1% | -28% | -5% | +9% | +0% | +0% | +0% | +0% | +0% | 169–192 |
+| floor32 | +1% | +37% | +6% | -8% | +0% | +0% | +0% | +0% | +0% | 169–192 |
+| hearings3 | +2% | +6% | +0% | -7% | +2% | +56% | +0% | +24% | -7% | 177–192 |
+| heavy300 | +2% | +1% | +0% | -1% | +3% | +19% | +0% | +8% | -2% | 169–192 |
+| hold30 | -0% | -1% | -1% | -17% | -0% | -12% | -2% | -7% | -19% | 175–192 |
+| hold5 | +2% | +1% | -0% | +6% | +3% | +15% | -1% | +8% | +6% | 169–192 |
+| nooverdue | +3% | +27% | +66% | -12% | +2% | +60% | -2% | +29% | -11% | 163–192 |
+| noskip | -5% | -86% | +819% | -4% | -7% | -100% | +15% | -6% | +5% | 169–192 |
+| onestep | +2% | +9% | +1% | +3% | +3% | +19% | +0% | +8% | -2% | 169–192 |
+| overdue200 | +0% | +5% | -1% | -3% | +1% | +42% | -2% | +18% | -4% | 163–192 |
+| overdue50 | +0% | +1% | +0% | +4% | +1% | +13% | +0% | +5% | +4% | 170–192 |
+| skip150 | +0% | +4% | -6% | -2% | +0% | +57% | -5% | +12% | +0% | 169–192 |
+| skip300 | -0% | -6% | +6% | -2% | -0% | -28% | +2% | -6% | -2% | 169–192 |
+| span2 | +2% | +5% | +1% | +22% | +3% | +75% | +2% | +30% | +26% | 174–192 |
+| span5 | -2% | -5% | -3% | -23% | -3% | -7% | -3% | -10% | -21% | 159–192 |
+| together | -3% | -8% | -3% | -28% | -4% | -27% | -4% | -17% | -26% | 159–192 |
+| up32 | -2% | -4% | -2% | +5% | -3% | -2% | -1% | -4% | +10% | 166–192 |
+| up8 | +1% | -1% | -2% | -9% | +2% | +19% | -1% | +10% | -6% | 170–192 |
 
 What it says, and what each constant's comment carries:
 
 - The behind threshold is set by jitter: at 20 ms the walk read up to
-  60 ms of it on a link with room as a link behind and walked to 41 to
-  59 kbit/s; at 60 and 80 ms, up to 100 ms of it walked to 50 to 143. At
-  150 ms over twice the sound was lost where a link narrowed.
-- Without skipping, the sound under the floor is 29 to 43 s late; without
-  overdue hearings, up to 43 s.
+  60 ms of it on a link with room as a link behind and walked to 32 to
+  42 kbit/s; at 60 and 80 ms, up to 100 ms of it walked to 37 to 88. At
+  150 ms three times the sound was lost where a link narrowed.
+- Without skipping, the sound under the floor is 16 to 41 s late; without
+  overdue hearings, up to 13 s, and 27% more is lost over every case.
 - Every step-size, span and cooldown variant either loses more sound or
-  trades rate for less loss. A 5 s clear span and a 30 s refusal hold lose
-  26% and 9% less where a link narrowed, swung or dipped, for 6% and 2% less
-  rate; together with a 1 s cooldown 37% less for 8%. They are not taken:
-  together they kept wlshare's sound at 134 to 149 kbit/s under the dips,
-  where this keeps it at 228 to 254, and at 162 after a link recovered,
-  where this has 220.
+  trades rate for less loss. A 30 s refusal hold loses 12% less where a
+  link narrowed, swung or dipped and moves the rate 17% less often, but
+  holds it at 153 to 161 kbit/s after a link recovers where this is back at
+  164 to 171; a 5 s clear span, and the two with a 1 s cooldown, hold
+  wlshare's sound at 91 to 98 kbit/s under the dips where this keeps 127 to
+  137. Neither is taken.
 
 ## The floor
 
@@ -338,42 +390,23 @@ neither at 24: every packet of every recording is stereo at 24 and none at
 16, and the band is the same at 16, 24 and 32. So the walk's floor is
 24 kbit/s now, a worse sound than 32 but the same one. Where the link sits
 between the two, and under both (`bench/walk-sweep.jsonl`, the `floor32`
-variant, against `bench/walk-lag.jsonl`):
+variant, against `bench/walk.jsonl`):
 
 | case | source | sound | floor 32 | floor 24 |
 |---|---|---|---|---|
 | | | | kbit/s, late p95/max ms, lost s, stalled s | kbit/s, late p95/max ms, lost s, stalled s |
-| between-floors | rdp | music | 105, 746/6430, 18.9, 13.2 | 84, 616/6430, 8.0, 7.7 |
-| between-floors | rdp | speech | 141, 862/5984, 13.0, 10.0 | 115, 559/5984, 6.3, 6.8 |
-| between-floors | wlshare | music | 86, 453/3465, 24.8, 19.5 | 80, 411/3465, 19.4, 15.1 |
-| between-floors | wlshare | speech | 86, 436/3350, 16.5, 13.2 | 80, 349/3350, 12.8, 10.0 |
-| under-floor | rdp | music | 151, 1092/11365, 34.7, 23.1 | 126, 1084/11365, 29.9, 21.8 |
-| under-floor | rdp | speech | 175, 1248/8316, 23.6, 16.7 | 152, 1000/8316, 20.6, 14.9 |
-| under-floor | wlshare | music | 85, 1011/6244, 35.8, 31.5 | 79, 718/6244, 33.4, 28.0 |
-| under-floor | wlshare | speech | 85, 904/6028, 31.8, 27.0 | 79, 661/6028, 29.5, 23.8 |
+| between-floors | rdp | music | 71, 746/3825, 17.3, 11.1 | 56, 567/3825, 4.3, 4.3 |
+| between-floors | rdp | speech | 89, 805/3726, 10.8, 8.0 | 66, 787/3726, 8.9, 7.3 |
+| between-floors | wlshare | music | 61, 482/2040, 18.6, 12.8 | 55, 352/2040, 8.6, 5.8 |
+| between-floors | wlshare | speech | 62, 470/1979, 12.6, 9.2 | 57, 363/1979, 7.0, 5.5 |
+| under-floor | rdp | music | 94, 1091/6805, 33.1, 19.7 | 78, 1084/6805, 27.7, 18.5 |
+| under-floor | rdp | speech | 107, 1426/4974, 22.1, 14.4 | 94, 1054/4974, 17.6, 11.9 |
+| under-floor | wlshare | music | 61, 904/3750, 32.4, 25.1 | 55, 634/3750, 28.9, 20.2 |
+| under-floor | wlshare | speech | 61, 812/3628, 25.4, 18.8 | 55, 624/3628, 20.3, 14.6 |
 
-Between the floors the sound is heard 0.35 to 0.62 s late at the 95th
-percentile against 0.44 to 0.86 s, with 6.3 to 19 s of the minute skipped
-against 13 to 25; over every case 32 lost 21% more. 16 kbit/s would lose
-20% less again (the `floor16` variant), in mono.
-
-What is still skipped between the floors is mostly wlshare's: 13 to 19 s
-of the minute against RDP's 6 to 8. Every unit of a passed stream is a
-WebSocket message of its own in a TLS record of its own, about 30 bytes of
-framing on a packet of 60 at 24 kbit/s, so the floor costs 36 kbit/s of
-the link where an RDP buffer's nine packets in one message cost 25.
-
-## The ceiling
-
-zdesk's ceiling is 320 kbit/s; `benchmarks.md` found a stereo stream within
-0.13 dB of it per channel at 192 by the proxies, and left whether a lower
-ceiling helps the walk to here. It does: on the same cases with the ceiling
-at 192 (`bench/walk-ceiling192.jsonl`), 16% less sound lost, 19% less
-stalled, the worst lateness summed 48 s against 77, and 27% fewer
-moves; a link swinging between 250 and 450 kbit/s is never walked at all.
-The rate is lower, 153 kbit/s on average against 219, most of it the links
-with room held at 192 rather than 320, and under the dips 103 to 151 against
-163 to 254. Like the ceiling itself, that is zdesk's to take, with a listen.
+Between the floors 4.3 to 8.9 s of the minute is skipped against 10.8 to
+18.6; over every case 32 lost 37% more. 16 kbit/s would lose 28% less again
+(the `floor16` variant), in mono.
 
 ## What the users do
 
@@ -387,11 +420,9 @@ The walk is the users' to drive, and zdesk drives it differently now:
   queue, which drops what comes while it is set: an RDP buffer before the
   encoder, a passed unit before the socket with the gap marked. That task
   has to keep reading pongs while a write is blocked, which today's single
-  select does not: the write goes to a task of its own. Everything else —
-  the queue's depth, the channel's, the shedding — stays. Two findings are
-  zdesk's to take or leave: a passed stream's units batched when the walk is
-  low, which would bring wlshare's framing at the floor near RDP's; and the
-  ceiling at 192 kbit/s.
+  select does not: the write goes to a task of its own. Its ceiling is
+  192 kbit/s, and it batches a passed stream's units as above. Everything
+  else — the queue's depth, the channel's, the shedding — stays.
 - **wlshare.** Nothing: it codes at the rate it is told, and the gateway's
   queue is where its sound is skipped.
 

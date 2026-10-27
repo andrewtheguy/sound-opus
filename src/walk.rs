@@ -68,23 +68,23 @@ use crate::{BITRATE_MAX, BITRATE_MIN};
 /// Lag at which the link counts as one that could not keep up. Above the
 /// jitter a Wi-Fi hop adds, so a link with room is never read as behind: at
 /// 20 ms, a packet's length, up to 60 ms of jitter on a link with room
-/// walked the rate from 320 to 41–59 kbit/s, and at 60 and 80 ms up to
-/// 100 ms of it walked the rate to 50–143, where this held 320 through both.
-/// 150 ms lost over twice the sound where a link narrowed, swung or dipped,
-/// the queue let grow that much longer before the rate moved.
+/// walked the rate from zdesk's 192 to 32–42 kbit/s, and at 60 and 80 ms up
+/// to 100 ms of it walked the rate to 37–88, where this held 192 through
+/// both. 150 ms lost three times the sound where a link narrowed, swung or
+/// dipped, the queue let grow that much longer before the rate moved.
 const BEHIND_LAG: Duration = Duration::from_millis(100);
 
 /// Lag below which the link counts as clear. Between this and [`BEHIND_LAG`]
 /// is hysteresis: a link hovering there earns neither a lower rate nor its
-/// rate back. 25 ms measured within 3% of it.
+/// rate back. 25 ms measured within 4% of it.
 const CLEAR_LAG: Duration = Duration::from_millis(50);
 
 /// Lag that is not a little behind but a lot: a step down here gives up two
 /// steps of [`STEP_DOWN`], and past [`LAG_SEVERE`] three. A queue this long
 /// is a link far narrower than the rate, and every packet coded at the rate in
-/// the meantime is more of it. One step whatever the lag lost 46% more sound
+/// the meantime is more of it. One step whatever the lag lost 19% more sound
 /// where a link narrowed, swung or dipped, and 300 and 800 ms in place of
-/// these 39% more.
+/// these as much.
 const LAG_HEAVY: Duration = Duration::from_millis(150);
 /// See [`LAG_HEAVY`].
 const LAG_SEVERE: Duration = Duration::from_millis(400);
@@ -93,24 +93,24 @@ const LAG_SEVERE: Duration = Duration::from_millis(400);
 /// before the encoder, and pings written back to back, until one comes back
 /// under [`BEHIND_LAG`], so the queue drains while nothing joins it and what
 /// is heard is live again. Under it a lag is left to the rate to drain.
-/// Without skipping, a link under the floor had the sound 29 to 43 s late at
-/// the 95th percentile, where this keeps it to 0.7 to 1.1 s; 300 ms lost 7%
-/// less and was heard 7% later, 150 ms lost 5% more for 5% sooner.
+/// Without skipping, a link under the floor had the sound 16 to 41 s late at
+/// the 95th percentile, where this keeps it to 0.6 to 1.1 s; 300 ms lost 6%
+/// less and was heard 6% later, 150 ms lost 4% more for 6% sooner.
 const SKIP_LAG: Duration = Duration::from_millis(200);
 
 /// How often a ping still out is heard, once it is this far past the least
 /// round trip: as lagging by as long as it has been out over that, which it
 /// is at least. A queue growing faster than its pongs come back is heard as
 /// it grows: waiting for the pong instead, a link that fell from 1000 kbit/s
-/// to under the floor moved the rate one to three times in 50 s and the sound
-/// was up to 43 s late at the 95th percentile, and over every case 4.5 times
-/// as late as this. 200 ms lost 6% more sound, 50 ms measured within 2%.
+/// to under the floor had the sound up to 13 s late at the 95th percentile,
+/// and over every case 1.7 times as late as this, with 27% more lost. 200 ms
+/// lost 5% more sound, 50 ms 1% more.
 pub const OVERDUE: Duration = Duration::from_millis(100);
 
 /// Behind hearings among the last [`VERDICT_WINDOW`] before rate is given up,
 /// the latest among them. Two rather than one, so a single late pong is not
 /// a verdict about the link; a window rather than a run, because the lag a
-/// link barely too narrow shows is intermittent. Three lost 24% more sound
+/// link barely too narrow shows is intermittent. Three lost 56% more sound
 /// where a link narrowed, swung or dipped.
 const BEHIND_HEARINGS: u32 = 2;
 /// See [`BEHIND_HEARINGS`].
@@ -120,11 +120,11 @@ const VERDICT_WINDOW: u32 = 4;
 /// fewest clear hearings that span must hold: deliberately far more than
 /// [`BEHIND_HEARINGS`]. A span rather than a count, because pongs come at the
 /// sound's own cadence, a wave buffer five times a second from one host, a
-/// packet fifty times a second from another. 2 s moved the rate 21% more
-/// often and lost 26% more sound where a link narrowed, swung or dipped; 5 s
-/// 20% less often and 26% less lost, but kept wlshare's sound at 134 to
-/// 149 kbit/s where half-second dips every ten seconds — a picture's
-/// keyframes on the same link — left it 228 to 254.
+/// packet fifty times a second from another. 2 s moved the rate 22% more
+/// often and lost 75% more sound where a link narrowed, swung or dipped; 5 s
+/// 23% less often and 7% less lost, but kept wlshare's sound at 91 to
+/// 98 kbit/s where half-second dips every ten seconds — a picture's
+/// keyframes on the same link — left it 127 to 137.
 const CLEAR_SPAN: Duration = Duration::from_secs(3);
 /// See [`CLEAR_SPAN`].
 const CLEAR_HEARINGS: u32 = 4;
@@ -137,7 +137,7 @@ const RELIEF_SPAN: Duration = Duration::from_secs(1);
 /// The least time between two moves of the rate, so a burst of late pongs is
 /// one decision rather than one per pong, and the queue a step down leaves
 /// has drained before the next verdict is read against it. 1 s and 3 s
-/// measured within 3% of it over every case.
+/// measured within 5% of it over every case.
 const ADJUST_COOLDOWN: Duration = Duration::from_secs(2);
 
 /// The least time between a step up and the step down that walks it back. Far
@@ -148,15 +148,15 @@ const REFUSAL_COOLDOWN: Duration = Duration::from_millis(500);
 /// How far one step down moves the rate on a link a little behind: to this
 /// fraction of itself, a third given up. Bigger down than up, for the same
 /// reason [`CLEAR_HEARINGS`] is bigger than [`BEHIND_HEARINGS`]. A quarter
-/// lost 23% more sound where a link narrowed, swung or dipped.
+/// lost 14% more sound where a link narrowed, swung or dipped.
 const STEP_DOWN: (u32, u32) = (2, 3);
 
 /// What the first step up reclaims, as a fraction of the ceiling: a sixteenth,
-/// 20 kbit/s under zdesk's 320. Every step up the link takes doubles the
+/// 12 kbit/s under zdesk's 192. Every step up the link takes doubles the
 /// next, to [`STEP_UP_MAX`], and a step down puts it back: a link that has
 /// recovered is at the ceiling again within a few steps rather than a minute.
-/// An eighth lost 18% more sound where a link narrowed, swung or dipped; a
-/// thirty-second 5% less, for 3% less rate.
+/// An eighth lost 19% more sound where a link narrowed, swung or dipped; a
+/// thirty-second 2% less, for 3% less rate.
 const STEP_UP: u32 = 16;
 /// The most one step up reclaims, as a fraction of the ceiling: half.
 const STEP_UP_MAX: u32 = 2;
@@ -166,8 +166,10 @@ const STEP_UP_MAX: u32 = 2;
 /// was just given, and the walk keeps under it for this long before probing
 /// there again, with the smallest step — TCP's slow-start threshold, on the
 /// rate. Without it a walk whose steps double on the way up would spend a
-/// session bouncing off the same rate. 5 s moved the rate 16% more often,
-/// 30 s 15% less often for 2% less rate.
+/// session bouncing off the same rate. 5 s moved the rate 6% more often; 30 s
+/// 17% less often and lost 12% less where a link narrowed, swung or dipped,
+/// but held the rate at 153 to 161 kbit/s after a link recovered, where this
+/// is back at 164 to 171.
 const REFUSAL_HOLD: Duration = Duration::from_secs(15);
 /// See [`REFUSAL_HOLD`].
 const REFUSAL_WINDOW: Duration = Duration::from_secs(4);
@@ -177,16 +179,14 @@ const REFUSAL_WINDOW: Duration = Duration::from_secs(4);
 /// as every adaptive stream's is. 24 kbit/s is the lowest of the rates
 /// measured, 12, 16, 24 and 32, at which libopus still codes a stereo stream
 /// as stereo and with every band the sound has (`docs/benchmarks.md`):
-/// degraded, but continuous, and continuity is the
-/// whole point of giving rate up. At 16 every packet is mono, the side gone,
-/// and at 12 the band narrows too, which a listener hears as a different
-/// sound rather than a worse one. Against 32, 24 gives up 0.27 dB of
-/// log-spectral distance and 1.6 dB of segmental SNR over the recordings,
-/// and where a link carries 28 kbit/s of sound it is heard 0.35 to 0.62 s
-/// late at the 95th percentile with 6 to 19 s of the minute skipped, against
-/// 0.44 to 0.86 s and 13 to 25 s at 32, which lost 21% more sound over
-/// every case. 16 would lose 20% less than this, in mono. A ceiling at or
-/// under it is never moved.
+/// degraded, but continuous, and continuity is the whole point of giving
+/// rate up. At 16 every packet is mono, the side gone, and at 12 the band
+/// narrows too, which a listener hears as a different sound rather than a
+/// worse one. Against 32, 24 gives up 0.27 dB of log-spectral distance and
+/// 1.6 dB of segmental SNR over the recordings, and where a link carries
+/// 28 kbit/s of sound 4 to 9 s of the minute is skipped, against 11 to 19 s
+/// at 32, which lost 37% more sound over every case. 16 would lose 28% less
+/// than this, in mono. A ceiling at or under it is never moved.
 pub const BITRATE_FLOOR: u32 = 24_000;
 const _: () = assert!(BITRATE_MIN < BITRATE_FLOOR && BITRATE_FLOOR < crate::BITRATE_DEFAULT);
 
