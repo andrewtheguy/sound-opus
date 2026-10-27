@@ -10,12 +10,16 @@
 //! least any took is the lag ([`BitrateWalk::pong`]), and a ping still out is
 //! heard as lagging by as long as it has been out, every [`OVERDUE`]
 //! ([`BitrateWalk::tick`]), so a queue growing behind it is heard while it
-//! grows rather than once it has drained. How long a write blocked
-//! ([`BitrateWalk::sent`]) is heard too, as the longer of the two: a socket
-//! takes a lot before a write blocks, but a sender whose pongs some proxy
-//! answers still hears a link that will not take its sound. The ping, the
-//! socket and what the rate the walk arrives at is done with — moved on an
-//! [`Encoder`] here, or named to a remote that codes its own — are the
+//! grows rather than once it has drained. Every batch sent is told
+//! ([`BitrateWalk::sent`]): how long its write blocked is heard too, as the
+//! longer of the two, since a socket takes a lot before a write blocks but a
+//! sender whose pongs some proxy answers still hears a link that will not
+//! take its sound; and what it carried says whether the sound behind a ping
+//! was quiet, which a clear pong then proves nothing about. Pings are
+//! spaced ([`PING_SPACING`]), since a passed stream's batches come every
+//! 20 ms and a ping costs a link as much as a packet of silence. The ping,
+//! the socket and what the rate the walk arrives at is done with — moved on
+//! an [`Encoder`] here, or named to a remote that codes its own — are the
 //! caller's.
 //!
 //! Blocking alone was the signal, and it is not one: Linux's socket to a
@@ -28,10 +32,12 @@
 //! One-directional by construction: the walk never goes above the ceiling,
 //! since a link with room to spare shows no more of it than one that is merely
 //! keeping up, and a better sound than the operator asked for was never the
-//! goal. Quick to give rate up — by more the further behind the link is — and
-//! slow to take it back, in steps that double while the link keeps taking them
-//! and stop short of a rate it refused, so a link that is intermittently bad
-//! settles at a rate it can hold rather than oscillating around one it cannot.
+//! goal. Quick to give rate up — by more the further behind the link is, and
+//! again sooner while it stays far behind — and slow to take it back, in
+//! steps that double while the link keeps taking them, come sooner while it
+//! shows nothing queued behind sound, and stop short of a rate it refused,
+//! so a link that is intermittently bad settles at a rate it can hold rather
+//! than oscillating around one it cannot.
 //! The floor is fixed rather than configured, as every adaptive stream's is:
 //! past it a lower rate buys nothing a listener would call the same sound, and
 //! a configured floor was a key with one right value.
@@ -116,9 +122,15 @@ pub const OVERDUE: Duration = Duration::from_millis(100);
 /// or every 60 batched, so one went every round trip there, about 32 bytes
 /// each in its record: 4 to 6 kbit/s at a 40 ms round trip, a sixth of the
 /// sound at the floor. Under the cadence an RDP host's buffers set, 186 ms,
-/// so nothing moves on that stream. While skipping, pings are the probe that
-/// ends it, written as each pong is back.
-pub const PING_SPACING: Duration = Duration::from_millis(150);
+/// so nothing moves on that stream. A quarter fewer pings over every case,
+/// 4% less stalled for the same sound lost, and between the floors
+/// wlshare's speech loses 7.0 s of the minute against 8.3. 150 and 180 ms
+/// write 39% and 44% fewer, but a passed stream is then heard that much
+/// less often: under half-second dips wlshare's speech held 139 kbit/s
+/// against 160, and 9% and 13% more was lost where a link narrowed, swung
+/// or dipped. While skipping, pings are the probe that ends it, written as
+/// each pong is back.
+pub const PING_SPACING: Duration = Duration::from_millis(100);
 
 /// Behind hearings among the last [`VERDICT_WINDOW`] before rate is given up,
 /// the latest among them. Two rather than one, so a single late pong is not
@@ -188,15 +200,13 @@ const REFUSAL_COOLDOWN: Duration = Duration::from_millis(500);
 
 /// The least time between two steps down while the link is [`LAG_HEAVY`]
 /// behind or more: every packet coded at a rate that far over the link is
-/// that much more queue.
+/// that much more queue. Half of [`ADJUST_COOLDOWN`], as wlshare's walk has
+/// it: 5% less sound lost over every case and 12% less where a link
+/// narrowed, swung or dipped, heard 3% sooner; between the floors speech
+/// over RDP loses 4.6 s of the minute against 8.9. Half a second loses as
+/// much, 18% less where a link narrowed, at 94 to 96 kbit/s on the narrowest
+/// link against 102 to 106; 1.5 s 2% less.
 const HEAVY_COOLDOWN: Duration = Duration::from_secs(1);
-
-/// How much the lag must have fallen since the last step down for the queue
-/// to count as draining, as a fraction of what it was. A step down that put
-/// the rate under the link leaves the queue it built to drain, and the lag
-/// stays high while it does without saying the step was too small; while it
-/// is falling this fast the walk waits a cooldown and looks again.
-const DRAIN_FRACTION: u32 = 5;
 
 /// How far one step down moves the rate on a link a little behind: to this
 /// fraction of itself, a third given up. Bigger down than up, for the same
@@ -262,11 +272,9 @@ pub struct BitrateWalk {
     /// how many, and the most lag heard since, a hearing in the band between
     /// clear and behind among them, `None` once one came behind quiet sound.
     clear: Option<(Instant, u32, Option<Duration>)>,
-    /// The lag the last step down was taken on, while no step up has
-    /// followed: what the next step down waits to see stop falling
-    /// ([`DRAIN_FRACTION`]), and what reads the link as far behind still
-    /// ([`HEAVY_COOLDOWN`]).
-    stepped_on: Option<Duration>,
+    /// Whether the last move was a step down: what reads a link still far
+    /// behind as one to look at again sooner ([`HEAVY_COOLDOWN`]).
+    stepped_down: bool,
     /// When the rate last moved, for [`ADJUST_COOLDOWN`]. `None` before it
     /// ever has, so the first verdict does not wait out a cooldown that never
     /// ran.
@@ -316,7 +324,7 @@ impl BitrateWalk {
             behind: false,
             verdicts: 0,
             clear: None,
-            stepped_on: None,
+            stepped_down: false,
             changed_at: None,
             reclaim: ceiling / STEP_UP,
             reclaimed: None,
@@ -499,7 +507,7 @@ impl BitrateWalk {
         // coded over it being that much more queue.
         let cooldown = if behind && self.reclaimed.is_some_and(|(_, at)| self.changed_at == Some(at)) {
             REFUSAL_COOLDOWN
-        } else if behind && lag >= LAG_HEAVY && self.stepped_on.is_some() {
+        } else if behind && lag >= LAG_HEAVY && self.stepped_down {
             HEAVY_COOLDOWN
         } else if climbing {
             CLIMB_SPAN
@@ -510,14 +518,6 @@ impl BitrateWalk {
             return None;
         }
         let moved = if behind && self.verdicts.count_ones() >= BEHIND_HEARINGS {
-            // The queue the last step left is still draining: the step was
-            // enough, and the verdicts wait for the lag to stop falling,
-            // looked at again a cooldown from now against the lag as it is.
-            if self.stepped_on.is_some_and(|on| lag + on / DRAIN_FRACTION < on) {
-                self.stepped_on = Some(lag);
-                self.changed_at = Some(now);
-                return None;
-            }
             // At the floor a link still behind is left to skipping, whatever
             // the lag: no rate drains it, and a lag that does not drain while
             // nothing is written is the path's. Without it, a route 150 ms
@@ -573,7 +573,7 @@ impl BitrateWalk {
         }
         self.reclaim = self.ceiling / STEP_UP;
         self.reclaimed = None;
-        self.stepped_on = Some(lag);
+        self.stepped_down = true;
         moved
     }
 
@@ -598,7 +598,7 @@ impl BitrateWalk {
         };
         self.reclaimed = Some((self.bitrate, now));
         self.bitrate = wanted;
-        self.stepped_on = None;
+        self.stepped_down = false;
         true
     }
 }
@@ -815,25 +815,6 @@ mod tests {
         assert_eq!(verdict(&mut little, LAG_HEAVY, start), Some(42_666));
         assert_eq!(verdict(&mut little, LAG_HEAVY - MS, moved + HEAVY_COOLDOWN), None, "a little behind waits the full cooldown");
         assert_eq!(verdict(&mut little, LAG_HEAVY - MS, moved + ADJUST_COOLDOWN), Some(28_444));
-    }
-
-    /// A verdict whose lag has fallen by [`DRAIN_FRACTION`] or more since the
-    /// last step down is that step draining the queue it left, not a step
-    /// too small: the walk waits a cooldown and looks again, and steps once
-    /// the lag has stopped falling.
-    #[test]
-    fn a_draining_queue_is_not_stepped_on_again() {
-        let start = Instant::now();
-        let mut walk = walk(BITRATE_DEFAULT, start);
-        assert_eq!(verdict(&mut walk, LAG_HEAVY, start), Some(42_666));
-        let moved = start + TRIP + LAG_HEAVY;
-        let falling = LAG_HEAVY - LAG_HEAVY / 3;
-        let at = moved + ADJUST_COOLDOWN;
-        assert_eq!(verdict(&mut walk, falling, at), None, "the step is draining its queue");
-        assert_eq!(walk.bitrate(), 42_666);
-        let waited = at + TRIP + falling;
-        assert_eq!(verdict(&mut walk, falling, waited + ADJUST_COOLDOWN / 2), None, "looked at again a cooldown on");
-        assert_eq!(verdict(&mut walk, falling, waited + ADJUST_COOLDOWN), Some(28_444), "the lag stopped falling");
     }
 
     /// Two hearings behind among four are a verdict, as a link barely too

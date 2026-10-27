@@ -12,7 +12,7 @@
 # and WITH, a list of NAME=VALUE pairs, is set on every variant first, so a
 # round's items are measured one on top of another with the rest off:
 #
-#     ONLY="base noclimb climb500" WITH="DRAIN_FRACTION=1" tools/walk-sweep.sh OUT
+#     ONLY="base noclimb climb500" WITH="HEAVY_COOLDOWN=Duration::from_secs(2)" tools/walk-sweep.sh OUT
 #
 # The recordings are tools/walk-cases.sh's, under tmp/samples or SAMPLES.
 set -eu
@@ -95,21 +95,17 @@ variant idle10 LAG_IDLE="$(ms 10)"
 variant idle25 LAG_IDLE="$(ms 25)"
 # A fraction this large is sound that is never quiet.
 variant noquiet QUIET_FRACTION=1_000_000
-variant quiet2 QUIET_FRACTION=2
+variant quiet4 QUIET_FRACTION=4
 variant quiet8 QUIET_FRACTION=8
 # A heavy cooldown as long as the cooldown is none.
 variant noheavy HEAVY_COOLDOWN="$(secs 2)"
 variant heavy500 HEAVY_COOLDOWN="$(ms 500)"
 variant heavy1500 HEAVY_COOLDOWN="$(ms 1500)"
-# A fraction of one is a lag that never counts as draining.
-variant nodrain DRAIN_FRACTION=1
-variant drain3 DRAIN_FRACTION=3
-variant drain10 DRAIN_FRACTION=10
 variant nospacing PING_SPACING="$(ms 0)"
-variant spacing100 PING_SPACING="$(ms 100)"
+variant spacing150 PING_SPACING="$(ms 150)"
 variant spacing180 PING_SPACING="$(ms 180)"
 # Every item of this round off: the walk as v0.0.5 had it.
-variant v0.0.5 CLIMB_SPAN="$(secs 3)" HEAVY_COOLDOWN="$(secs 2)" DRAIN_FRACTION=1 PING_SPACING="$(ms 0)"
+variant v0.0.5 CLIMB_SPAN="$(secs 3)" HEAVY_COOLDOWN="$(secs 2)" PING_SPACING="$(ms 0)"
 
 # Four at a time.
 cd "$repo"

@@ -218,8 +218,10 @@ Over every case the 95th-percentile lateness summed falls from 433 s to
 and the stalls from 871 s to 164 s, with the floor at 24 kbit/s (below).
 With zdesk's ceiling at 192 kbit/s and a passed stream batched at low
 rates (`bench/walk-batched.jsonl`), 20 s, 133 s and 105 s; with a link
-still behind at the floor skipped too, as it is now (`bench/walk.jsonl`),
-19 s, 143 s and 99 s over the same cases.
+still behind at the floor skipped too, as v0.0.5 had it
+(`bench/walk-v0.0.5.jsonl`), 19 s, 143 s and 99 s over the same cases; and
+with the round after wlshare's walk below (`bench/walk.jsonl`), 20 s, 139 s
+and 92 s.
 
 | case | source | sound | walk-v0.0.4 | walk-lag |
 |---|---|---|---|---|
@@ -415,6 +417,89 @@ With that, against the walk before it:
 - A span of 500 ms moves the rate 16% more often for the same rate and
   9% more lost where a link narrowed; 1.5 s gains 6 kbit/s less under the
   dips. An idle lag of 10 or 25 ms measures as 15.
+
+### A step down again sooner while far behind
+
+While the link is still `LAG_HEAVY` behind after a step down, 150 ms or
+more, the next verdict is read a second after it (`HEAVY_COOLDOWN`) rather
+than two: every packet coded at a rate that far over the link is that much
+more queue. On top of the climb (`bench/walk-heavy.jsonl`):
+
+- Over every case 5% less sound is lost, heard 3% sooner at the 95th
+  percentile with 5% less stalled, for 1% more rate; where a link narrowed,
+  swung or dipped 12% less is lost.
+- A link narrowed to 100 kbit/s loses 0.6 s of the minute against 0.9, on
+  music and on speech over RDP; between the floors speech over RDP loses
+  4.6 s against 8.9 and is heard 0.2 s sooner, over wlshare 7.0 against 8.3.
+  What it costs is rate on the link that starts narrow, 122 to 124 kbit/s
+  against 130 to 133, heard 60 ms sooner.
+- Half a second loses as much over every case and 18% less where a link
+  narrowed, at 94 to 96 kbit/s on the narrowest link against 102 to 106;
+  1.5 s loses 2% less. A second, half the cooldown, as wlshare's walk has
+  it.
+
+### Fewer pings on a passed stream
+
+A ping goes no sooner than 100 ms after the last (`PING_SPACING`) unless
+the walk is skipping, when they are the probe that ends it. On wlshare's
+stream one went every round trip, ahead of every batch, about 32 bytes
+each in its record; an RDP host's batches are 186 ms apart, so nothing
+moves on that stream. On top of the climb (`bench/walk-spacing.jsonl`):
+
+- A quarter fewer pings over every case, 4% less stalled and heard 2%
+  sooner at the 95th percentile for the same sound lost; where a link
+  narrowed, swung or dipped 2% less is lost. Between the floors wlshare's
+  speech loses 7.0 s against 8.3, under the floor its sound is heard 0.1 to
+  0.2 s sooner at the 95th percentile with 1 to 2.6 s less stalled, and the
+  worst packet 0.2 to 0.7 s later. A jittery link narrowed to 200 kbit/s
+  holds 163 kbit/s on speech over wlshare against 169.
+- 150 ms writes 39% fewer pings and 180 ms 44%, but hearings come that
+  much further apart on a passed stream: under the dips wlshare's speech
+  holds 139 kbit/s against 160, on the link that starts narrow 119 to 121
+  against 130, and where a link narrowed, swung or dipped 9% and 13% more
+  is lost.
+
+### A wait while a step's queue drains, not taken
+
+wlshare's walk reads a verdict whose lag has fallen by a fifth or more since
+the last step down as that step draining the queue it left, not as a step
+too small, and waits a cooldown before stepping again. Tried here the same
+way on top of the climb (`bench/walk-drain.jsonl`), and with the two rules
+above (`bench/walk-sweep.jsonl`'s round, `base` against `nodrain` in the
+sums below), everything it moves is at the floors: 7% less sound is lost
+over every case, 27.7 s of the minute under the floor on music over RDP
+against 29.9, and the sound is heard 6% later at the 95th percentile with
+12% more stalled, 0.94 s against 0.42 on wlshare's music under the floor.
+Where a link narrowed, swung or dipped it loses 5% more alone and the same
+with the rules above. A skip drains this walk's queue, not the rate, so a
+lag that is falling is one the skip is draining and the verdict waits on
+nothing; a wait there is sound queued longer. A trade, and not taken.
+
+### What the round comes to
+
+The walk with the climb, the shorter cooldown while far behind and the
+spaced pings (`bench/walk.jsonl`) against v0.0.5's
+(`bench/walk-v0.0.5.jsonl`), over the same cases:
+
+| log | kbit/s mean | late p95 sum | late max sum | lost s | stalled s | moves | pings |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| walk-v0.0.5 | 152 | 20731 | 49066 | 145.1 | 100.3 | 389 | 30923 |
+| walk | 155 | 19971 | 50412 | 139.1 | 92.3 | 402 | 23189 |
+
+- Under the dips the rate is 155 to 163 kbit/s where it was 103 to 151;
+  a link narrowed to 100 kbit/s loses 0.6 s of the minute against 0.9 on
+  three of four runs and 1.2 against 0.8 on speech over wlshare; between
+  the floors speech loses 4.6 s against 8.9 over RDP and 6.8 against 8.3
+  over wlshare; under the floor wlshare's sound is heard 0.1 to 0.2 s sooner
+  at the 95th percentile with 1 to 3 s less stalled, and its worst packet
+  0.2 to 0.7 s later.
+- What it costs: on the link that recovers wlshare's speech holds
+  144 kbit/s against 164, the pings it is heard by a quarter fewer; on a
+  link narrowed to 200 kbit/s wlshare's speech holds 163 to 167 against
+  169 to 172; on the link that starts narrow 119 to 124 against 130 to 132.
+- Over every case 3 kbit/s more, 4% less sound lost, 8% less stalled,
+  heard 4% sooner at the 95th percentile and 3% later at the worst, with
+  a quarter fewer pings.
 
 ## The constants
 
