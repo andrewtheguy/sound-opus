@@ -38,9 +38,9 @@
 //!
 //! The walk hears what zdesk would tell it: a ping written ahead of a batch
 //! when none is in flight, its pong, the ping overdue whenever the walk asks
-//! to be told ([`BitrateWalk::next_tick`]), and how long the batch's send
-//! blocked; and while the walk is skipping, the pump drops what comes and the
-//! writer pings again as each pong is back.
+//! to be told ([`BitrateWalk::next_tick`]), and every batch sent, its packets
+//! and bytes and how long its send blocked; and while the walk is skipping,
+//! the pump drops what comes and the writer pings again as each pong is back.
 //!
 //! `--ceiling` is the rate the walk starts at and never passes, 192 kbit/s as
 //! zdesk sets it; `--held` holds it there. `--secs` plays that much of the
@@ -562,6 +562,7 @@ fn main() -> Result<(), Error> {
     let mut browser = Browser::default();
     let mut out: Vec<u8> = Vec::new();
     let (mut shed, mut skipped) = (Duration::ZERO, Duration::ZERO);
+    let mut pings = 0u32;
     let mut rates_coded: Vec<f64> = Vec::new();
     let (mut behind_for, mut behind_since) = (Duration::ZERO, None::<Duration>);
     if let Some(t) = &mut timeline {
@@ -588,6 +589,7 @@ fn main() -> Result<(), Error> {
             // writes one at once, after anything it is writing.
             let at = writing.map_or(now, |until| until.max(now));
             if walking.walk.skipping() && walking.walk().ping(base + at) {
+                pings += 1;
                 let (taken, exit) = socket.write(at, PING_BYTES);
                 browser.arrived = browser.arrived.max(exit + rtt / 2 + socket.delay_at(exit) + wobble());
                 pong = Some(browser.arrived + rtt / 2);
@@ -642,6 +644,7 @@ fn main() -> Result<(), Error> {
                 progress = true;
                 let mut at = now;
                 if walking.walk().ping(base + at) {
+                    pings += 1;
                     let (taken, exit) = socket.write(at, PING_BYTES);
                     browser.arrived = browser.arrived.max(exit + rtt / 2 + socket.delay_at(exit) + wobble());
                     pong = Some(browser.arrived + rtt / 2);
@@ -667,8 +670,8 @@ fn main() -> Result<(), Error> {
                     )?;
                 }
                 if let Some((since, batch)) = pump.take() {
+                    walking.walk().sent(now - since, batch.len() as u32, batch.iter().map(|p| p.bytes).sum());
                     channel.push_back(batch);
-                    walking.walk().sent(now - since);
                 }
             }
             // The pump reads the next buffer or units, and sends the packets.
@@ -726,6 +729,7 @@ fn main() -> Result<(), Error> {
             }
             if !batch.is_empty() {
                 if channel.len() < CHANNEL_DEPTH {
+                    walking.walk().sent(Duration::ZERO, batch.len() as u32, batch.iter().map(|p| p.bytes).sum());
                     channel.push_back(batch);
                 } else {
                     pump = Some((now, batch));
@@ -759,7 +763,7 @@ fn main() -> Result<(), Error> {
     let path = walking.path.iter().map(|(t, rate)| format!("{}@{:.1}", rate / 1000, t.as_secs_f64())).collect::<Vec<_>>().join(" ");
     println!(
         "{{\"case\":{},\"recording\":{},\"source\":\"{}\",\"link\":\"{link_arg}\",\"rtt\":{},\"jitter\":{},\"queue\":{},\"delay\":\"{delay_arg}\",\"sndbuf\":{sndbuf},\"passed_lag\":{passed_lag},\"batch_below\":[{},{}],\"held\":{held},\"ceiling\":{},\"pause\":{},\"secs\":{:.1},\
-\"rate_mean\":{:.1},\"rate_p10\":{:.0},\"late_p50\":{:.0},\"late_p95\":{:.0},\"late_max\":{:.0},\"heard\":{:.2},\"dropped\":{:.2},\"gaps\":{},\"skipped\":{:.2},\"trimmed\":{:.2},\"shed\":{:.2},\"stalls\":{},\"stalled\":{:.2},\"behind\":{:.2},\"moves\":{},\"downs\":{},\"first_down\":{},\"path\":{}}}",
+\"rate_mean\":{:.1},\"rate_p10\":{:.0},\"late_p50\":{:.0},\"late_p95\":{:.0},\"late_max\":{:.0},\"heard\":{:.2},\"dropped\":{:.2},\"gaps\":{},\"skipped\":{:.2},\"trimmed\":{:.2},\"shed\":{:.2},\"stalls\":{},\"stalled\":{:.2},\"behind\":{:.2},\"pings\":{pings},\"moves\":{},\"downs\":{},\"first_down\":{},\"path\":{}}}",
         json(&case),
         json(&name),
         if rdp { "rdp" } else { "wlshare" },

@@ -26,5 +26,5 @@ so nothing of Opus is compiled to build and nothing is installed to run.
 Use it by release tag:
 
 ```toml
-sound-opus = { git = "https://github.com/andrewtheguy/sound-opus", tag = "v0.0.5" }
+sound-opus = { git = "https://github.com/andrewtheguy/sound-opus", tag = "v0.0.6" }
 ```
