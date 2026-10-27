@@ -16,9 +16,15 @@ be made again:
 The probes ran on lab2, alone (`benchmarks.md` has the machine). The
 simulation is deterministic and runs in its own time, so how busy a machine
 is changes nothing, but libopus codes a little differently on ARM and on
-x86: the logs here are an Apple-silicon Mac's, and lab2 gives the same lines
-but for ten of the speech's, which differ in the last figures — at most
-17 ms of median lateness, 0.12 s of sound skipped and 11 stalls in a case.
+x86: the logs here are an Apple-silicon Mac's. lab2 ran the sweep of every
+constant too (`bench/walk-sweep-lab2.jsonl` beside `bench/walk-sweep.jsonl`,
+2,494 runs each): 2,073 lines are the same in every figure and in the
+rate's path, and of the 421 that differ, 416 are the speech's, nearly all
+at the floors, by at most 6 kbit/s, 110 ms at the 95th percentile, 0.9 s of
+sound and 0.7 s stalled in a run; the walk as it is differs on 10 of its 58
+runs, by at most 0.7 kbit/s, 9 ms and 0.2 s. Every variant's figure against
+the base reads the same on both machines to a point of a per cent, so the
+constants' table below is either machine's.
 
 ## What the sound goes through
 
