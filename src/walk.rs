@@ -68,8 +68,8 @@ use crate::{BITRATE_MAX, BITRATE_MIN};
 /// Lag at which the link counts as one that could not keep up. Above the
 /// jitter a Wi-Fi hop adds, so a link with room is never read as behind: at
 /// 20 ms, a packet's length, up to 60 ms of jitter on a link with room
-/// walked the rate from 320 to 48–64 kbit/s, and at 60 and 80 ms up to
-/// 100 ms of it walked the rate to 56–145, where this held 320 through both.
+/// walked the rate from 320 to 41–59 kbit/s, and at 60 and 80 ms up to
+/// 100 ms of it walked the rate to 50–143, where this held 320 through both.
 /// 150 ms lost over twice the sound where a link narrowed, swung or dipped,
 /// the queue let grow that much longer before the rate moved.
 const BEHIND_LAG: Duration = Duration::from_millis(100);
@@ -93,18 +93,18 @@ const LAG_SEVERE: Duration = Duration::from_millis(400);
 /// before the encoder, and pings written back to back, until one comes back
 /// under [`BEHIND_LAG`], so the queue drains while nothing joins it and what
 /// is heard is live again. Under it a lag is left to the rate to drain.
-/// Without skipping, a link under the floor had the sound 39 to 42 s late at
-/// the 95th percentile, where this keeps it to 0.9 to 1.2 s; 300 ms lost 6%
-/// less and was heard 10% later, 150 ms lost 3% more for 4% sooner.
+/// Without skipping, a link under the floor had the sound 29 to 43 s late at
+/// the 95th percentile, where this keeps it to 0.7 to 1.1 s; 300 ms lost 7%
+/// less and was heard 7% later, 150 ms lost 5% more for 5% sooner.
 const SKIP_LAG: Duration = Duration::from_millis(200);
 
 /// How often a ping still out is heard, once it is this far past the least
 /// round trip: as lagging by as long as it has been out over that, which it
 /// is at least. A queue growing faster than its pongs come back is heard as
 /// it grows: waiting for the pong instead, a link that fell from 1000 kbit/s
-/// to under the floor moved the rate once or twice in 50 s and the sound was
-/// up to 43 s late at the 95th percentile, and over every case 4.4 times as
-/// late as this. 200 ms lost 4% more sound, 50 ms measured within 4%.
+/// to under the floor moved the rate one to three times in 50 s and the sound
+/// was up to 43 s late at the 95th percentile, and over every case 4.5 times
+/// as late as this. 200 ms lost 6% more sound, 50 ms measured within 2%.
 pub const OVERDUE: Duration = Duration::from_millis(100);
 
 /// Behind hearings among the last [`VERDICT_WINDOW`] before rate is given up,
@@ -166,7 +166,7 @@ const STEP_UP_MAX: u32 = 2;
 /// was just given, and the walk keeps under it for this long before probing
 /// there again, with the smallest step — TCP's slow-start threshold, on the
 /// rate. Without it a walk whose steps double on the way up would spend a
-/// session bouncing off the same rate. 5 s moved the rate 15% more often,
+/// session bouncing off the same rate. 5 s moved the rate 16% more often,
 /// 30 s 15% less often for 2% less rate.
 const REFUSAL_HOLD: Duration = Duration::from_secs(15);
 /// See [`REFUSAL_HOLD`].
@@ -174,14 +174,20 @@ const REFUSAL_WINDOW: Duration = Duration::from_secs(4);
 
 /// The adaptive floor, in bits per second: where the walk stops giving rate up
 /// and a link still behind is left to skipping. Fixed rather than configured,
-/// as every adaptive stream's is. 32 kbit/s is where Opus stereo still codes
-/// the whole band at full width: degraded, but continuous, and continuity is
-/// the whole point of giving rate up. Below it libopus narrows the band and
-/// folds the stereo, which a listener hears as a different sound rather than
-/// a worse one, and halving the rate again saves a few kilobits a second of a
-/// link that is already dropping a picture's megabits. A ceiling at or under
-/// it is never moved.
-pub const BITRATE_FLOOR: u32 = 32_000;
+/// as every adaptive stream's is. 24 kbit/s is the lowest of the rates
+/// measured, 12, 16, 24 and 32, at which libopus still codes a stereo stream
+/// as stereo and with every band the sound has (`docs/benchmarks.md`):
+/// degraded, but continuous, and continuity is the
+/// whole point of giving rate up. At 16 every packet is mono, the side gone,
+/// and at 12 the band narrows too, which a listener hears as a different
+/// sound rather than a worse one. Against 32, 24 gives up 0.27 dB of
+/// log-spectral distance and 1.6 dB of segmental SNR over the recordings,
+/// and where a link carries 28 kbit/s of sound it is heard 0.35 to 0.62 s
+/// late at the 95th percentile with 6 to 19 s of the minute skipped, against
+/// 0.44 to 0.86 s and 13 to 25 s at 32, which lost 21% more sound over
+/// every case. 16 would lose 20% less than this, in mono. A ceiling at or
+/// under it is never moved.
+pub const BITRATE_FLOOR: u32 = 24_000;
 const _: () = assert!(BITRATE_MIN < BITRATE_FLOOR && BITRATE_FLOOR < crate::BITRATE_DEFAULT);
 
 /// See the [module](self).
@@ -605,6 +611,8 @@ mod tests {
         let later = start + ADJUST_COOLDOWN;
         assert_eq!(heard(&mut walk, BEHIND_LAG, later), Some(42_666));
         let later = later + ADJUST_COOLDOWN;
+        assert_eq!(verdict(&mut walk, BEHIND_LAG, later), Some(28_444));
+        let later = later + ADJUST_COOLDOWN;
         assert_eq!(verdict(&mut walk, BEHIND_LAG, later), Some(BITRATE_FLOOR), "stops at the floor");
         let later = later + ADJUST_COOLDOWN;
         assert_eq!(verdict(&mut walk, LAG_SEVERE, later), None, "nothing left to give");
@@ -636,7 +644,9 @@ mod tests {
         let mut heavy = walk(96_000, start);
         assert_eq!(verdict(&mut heavy, LAG_HEAVY, start), Some(42_666), "two thirds twice");
         let mut severe = walk(96_000, start);
-        assert_eq!(verdict(&mut severe, LAG_SEVERE, start), Some(BITRATE_FLOOR), "three, stopped by the floor");
+        assert_eq!(verdict(&mut severe, LAG_SEVERE, start), Some(28_444), "three");
+        let mut low = walk(64_000, start);
+        assert_eq!(verdict(&mut low, LAG_SEVERE, start), Some(BITRATE_FLOOR), "stopped by the floor");
         let mut high = walk(300_000, start);
         assert_eq!(verdict(&mut high, LAG_SEVERE, start), Some(88_888));
     }
@@ -772,14 +782,14 @@ mod tests {
         let start = Instant::now();
         let mut walk = walk(96_000, start);
         let mut at = start;
-        for _ in 0..3 {
+        for _ in 0..4 {
             verdict(&mut walk, BEHIND_LAG, at);
             at += ADJUST_COOLDOWN;
         }
         assert_eq!(walk.bitrate(), BITRATE_FLOOR);
         let (moved, at) = hearings(&mut walk, CLEAR_RUN / 2, Duration::ZERO, at);
         assert_eq!(moved, None, "half a clear span is not enough");
-        assert_eq!(recovery(&mut walk, 6, at), [38_000, 50_000, 74_000, 96_000]);
+        assert_eq!(recovery(&mut walk, 6, at), [30_000, 42_000, 66_000, 96_000]);
         assert_eq!(walk.bitrate(), 96_000);
     }
 
@@ -815,26 +825,26 @@ mod tests {
         let start = Instant::now();
         let mut walk = walk(96_000, start);
         let mut at = start;
-        for _ in 0..3 {
+        for _ in 0..4 {
             verdict(&mut walk, BEHIND_LAG, at);
             at += ADJUST_COOLDOWN;
         }
         let (moved, at) = hearings(&mut walk, CLEAR_RUN, Duration::ZERO, at);
-        assert_eq!(moved, Some(38_000));
+        assert_eq!(moved, Some(30_000));
         let at = at + ADJUST_COOLDOWN;
         let (moved, at) = hearings(&mut walk, CLEAR_RUN, Duration::ZERO, at);
-        assert_eq!(moved, Some(50_000));
+        assert_eq!(moved, Some(42_000));
         // Refused: behind within the window of that step, and walked back
         // after the refusal's short cooldown rather than the full one.
         let at = at + REFUSAL_COOLDOWN;
         assert_eq!(heard(&mut walk, BEHIND_LAG, at), None);
-        assert_eq!(heard(&mut walk, BEHIND_LAG, at), Some(38_000), "back to the rate the link bore");
+        assert_eq!(heard(&mut walk, BEHIND_LAG, at), Some(30_000), "back to the rate the link bore");
         // Clear again: up to the cap, halfway to the refused rate, and no further.
         let at = at + ADJUST_COOLDOWN;
-        assert_eq!(recovery(&mut walk, 2, at), [44_000]);
+        assert_eq!(recovery(&mut walk, 2, at), [36_000]);
         // The hold over, the walk probes past it, from the smallest step.
         let at = at + REFUSAL_HOLD;
-        assert_eq!(recovery(&mut walk, 6, at), [50_000, 62_000, 86_000, 96_000]);
+        assert_eq!(recovery(&mut walk, 6, at), [42_000, 54_000, 78_000, 96_000]);
     }
 
     /// A step down long after a step up is no refusal: the link bore the rate

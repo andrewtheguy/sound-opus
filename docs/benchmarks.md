@@ -495,6 +495,32 @@ either way: 139 µs a block at 160 kbit/s against 155 at 320. Whether a
 lower ceiling helps the walk, which starts from it and has further to come
 down from 320 on a link that narrows, is for the simulator (item 6).
 
+## The floor
+
+Item 7: where the walk stops giving rate up, which was 32 kbit/s on the word
+that below it libopus narrows the band and folds the stereo. The crate at
+12, 16, 24 and 32 kbit/s over the recordings, on lab2 as the runs above
+(`bench/lab2-floor.jsonl`, the packets under `2026-10-26/floor/`):
+
+| Rate, kbit/s | µs a block | Of one core | 99th, µs | Worst, µs | Came to, kbit/s | Peak, kbit/s | 99th packet, bytes | LSD, dB | Side LSD, dB | SegSNR, dB | CELT | Fullband |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 12 | 153 | 0.77% | 228 | 1719 | 11.3 | 14.0 | 43 | 10.97 | 52.24 | 6.04 | 0% | 0% |
+| 16 | 105 | 0.52% | 223 | 1728 | 16.1 | 18.6 | 59 | 3.09 | 52.24 | 6.97 | 68% | 83% |
+| 24 | 123 | 0.62% | 319 | 1766 | 24.0 | 26.8 | 94 | 1.86 | 8.96 | 10.30 | 69% | 83% |
+| 32 | 126 | 0.63% | 351 | 1895 | 31.9 | 35.5 | 123 | 1.59 | 6.92 | 11.89 | 69% | 83% |
+
+### What it says
+
+**24 kbit/s keeps the stereo and the band; 16 folds the stereo, 12 the band
+too.** Every packet of every recording is coded stereo at 24 and 32 kbit/s,
+and none at 16 or 12, where the side's LSD is 33 to 69 dB, the side gone.
+The fullband share is the same at 16, 24 and 32, 83%, the recordings that
+fall short (the piano, the station) falling as short at every rate, and
+nothing is fullband at 12, which is SILK. What 24 gives up against 32 is
+0.27 dB of LSD, 2.04 dB of the side's and 1.6 dB of SegSNR: a worse sound,
+not a different one. So the floor is 24 kbit/s (`walk::BITRATE_FLOOR`);
+what that does on a link between the two is in `walk.md`.
+
 ## The baseline: the recordings together
 
 ### `crate`

@@ -58,7 +58,7 @@ variant up32 STEP_UP=32
 variant hold5 REFUSAL_HOLD="$(secs 5)"
 variant hold30 REFUSAL_HOLD="$(secs 30)"
 variant together ADJUST_COOLDOWN="$(secs 1)" CLEAR_SPAN="$(secs 5)" REFUSAL_HOLD="$(secs 30)"
-variant floor24 BITRATE_FLOOR=24_000
+variant floor32 BITRATE_FLOOR=32_000
 variant floor16 BITRATE_FLOOR=16_000
 
 # Four at a time.
