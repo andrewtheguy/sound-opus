@@ -32,10 +32,12 @@
 //! One-directional by construction: the walk never goes above the ceiling,
 //! since a link with room to spare shows no more of it than one that is merely
 //! keeping up, and a better sound than the operator asked for was never the
-//! goal. Quick to give rate up — by more the further behind the link is, and
-//! again sooner while it stays far behind — and slow to take it back, in
-//! steps that double while the link keeps taking them, come sooner while it
-//! shows nothing queued behind sound, and stop short of a rate it refused,
+//! goal. Quick to give rate up once the link is behind on two pings — by more
+//! the further behind it is, and again sooner while it stays far behind —
+//! where one ping a Wi-Fi hop held a moment and let go moves nothing; and
+//! slow to take it back, in steps that double while the link keeps taking
+//! them, come sooner while it shows nothing queued behind sound, and stop
+//! short of a rate it refused,
 //! so a link that is intermittently bad settles at a rate it can hold rather
 //! than oscillating around one it cannot.
 //! The floor is fixed rather than configured, as every adaptive stream's is:
@@ -44,9 +46,9 @@
 //!
 //! The walk also says what a sender may drop to catch up. While the link is
 //! *behind*, silence is free to shed before the encoder: it drains a backlog by
-//! exactly that much and loses nothing anyone hears. A lag past 200 ms is
-//! sound queued that would be heard that late — at the floor any lag
-//! behind, no rate being left to drain it — and the walk is
+//! exactly that much and loses nothing anyone hears. A lag past 200 ms on a
+//! verdict is sound queued that would be heard that late — at the floor any
+//! lag behind, no rate being left to drain it — and the walk is
 //! *skipping* ([`BitrateWalk::skipping`]): the sender drops what comes next
 //! and pings back to back until a pong says the queue has drained, so what is
 //! heard comes back to live rather than staying behind for as long as a lower
@@ -97,24 +99,24 @@ const LAG_HEAVY: Duration = Duration::from_millis(150);
 /// See [`LAG_HEAVY`].
 const LAG_SEVERE: Duration = Duration::from_millis(400);
 
-/// Lag past which the sound queued is skipped: what comes next is dropped
-/// before the encoder, and pings written back to back, until one comes back
+/// Lag past which the sound queued is skipped, on a verdict ([`LAG_ALONE`]):
+/// what comes next is dropped before the encoder, and pings written back to
+/// back, until one comes back
 /// under [`BEHIND_LAG`], so the queue drains while nothing joins it and what
 /// is heard is live again. Under it a lag is left to the rate to drain, but
 /// at the floor, where no rate is left to. Without skipping, a link under
-/// the floor had the sound 16 to 41 s late at the 95th percentile, where
-/// this keeps it to 0.4 to 0.8 s; 300 ms lost 2% less and was heard 2%
-/// later, 150 ms lost 7% more for 3% sooner.
+/// the floor had the sound 18 to 41 s late at the 95th percentile, where
+/// this keeps it to 0.4 to 1.0 s; 300 ms lost 2% less and was heard 4%
+/// later, 150 ms lost 4% more for 2% sooner.
 const SKIP_LAG: Duration = Duration::from_millis(200);
 
 /// How often a ping still out is heard, once it is this far past the least
 /// round trip: as lagging by as long as it has been out over that, which it
 /// is at least. A queue growing faster than its pongs come back is heard as
-/// it grows: waiting for the pong instead, a link that fell from 1000 kbit/s
-/// to under the floor had the sound up to 13 s late at the 95th percentile,
-/// and over every case 1.7 times as late as this, with 30% more lost. 200 ms
-/// lost 3% more sound, 43% more where a link narrowed, swung or dipped, and
-/// 50 ms 1% less but 8% more there.
+/// it grows: waiting for the pong instead, over every case the sound was
+/// 3.9 times as late at the 95th percentile, with 40% more lost. 200 ms
+/// lost 2% less, 9% less where a link narrowed, swung or dipped, but 23%
+/// more on Wi-Fi's blips and was heard 2% later; 50 ms lost 1% more.
 pub const OVERDUE: Duration = Duration::from_millis(100);
 
 /// The least time between two pings while the walk is not skipping. A ping
@@ -132,14 +134,33 @@ pub const OVERDUE: Duration = Duration::from_millis(100);
 /// each pong is back.
 pub const PING_SPACING: Duration = Duration::from_millis(100);
 
-/// Behind hearings among the last [`VERDICT_WINDOW`] before rate is given up,
-/// the latest among them. Two rather than one, so a single late pong is not
-/// a verdict about the link; a window rather than a run, because the lag a
-/// link barely too narrow shows is intermittent. Three lost 25% more sound
+/// Pings behind among the last [`VERDICT_WINDOW`] before rate is given up,
+/// the latest among them, each one hearing however often it is heard. Two
+/// rather than one, so a single late ping is not a verdict about the link;
+/// a window rather than a run, because the lag a
+/// link barely too narrow shows is intermittent. Three lost 30% more sound
 /// where a link narrowed, swung or dipped.
 const BEHIND_HEARINGS: u32 = 2;
 /// See [`BEHIND_HEARINGS`].
 const VERDICT_WINDOW: u32 = 4;
+
+/// Lag that one ping is a verdict on by itself, rate given up and sound
+/// skipped on it alone. Under it a ping behind is one hearing however often
+/// it is heard, overdue and then back, so a link is behind on two pings
+/// before anything moves: a Wi-Fi hop holds everything for a moment and
+/// lets it go, and the ping after it finds nothing queued, where a link too
+/// narrow for the rate is still behind on the next. A ping out this long is
+/// a queue no hiccup explains, and waiting for its pong to write the next
+/// would let it grow for as long as it takes to come back. Against v0.0.7,
+/// which heard a ping as often as it was overdue and skipped on one past
+/// [`SKIP_LAG`], blips of 80 to 500 ms on a link with room hold wlshare's
+/// sound at 175 to 176 kbit/s where it was 94 to 105, and lose 71% less;
+/// where a link narrowed, swung or dipped 1.7 s more is lost over 26 runs,
+/// and 5% more over every case, most of it under the floors. 300 ms holds
+/// wlshare's at 161 kbit/s on the blips and skips 0.3 to 0.6 s a minute
+/// there again, for 7% less lost where a link narrowed; 600 ms loses 28%
+/// less on the blips and 5% more over every case.
+const LAG_ALONE: Duration = Duration::from_millis(400);
 
 /// How long the link must have been clear before rate is taken back, and the
 /// fewest clear hearings that span must hold: deliberately far more than
@@ -376,7 +397,7 @@ impl BitrateWalk {
     /// next packet at if the walk moved; nothing for a pong with no ping in
     /// flight.
     pub fn pong(&mut self, now: Instant) -> Option<u32> {
-        let (went, _, quiet) = self.ping.take()?;
+        let (went, heard, quiet) = self.ping.take()?;
         let trip = now.saturating_duration_since(went);
         let least = self.least.map_or(trip, |least| least.min(trip));
         self.least = Some(least);
@@ -401,7 +422,7 @@ impl BitrateWalk {
                 *last = Some((went, lag));
             }
         }
-        self.hear(lag, quiet, now)
+        self.hear(lag, quiet, heard.is_some(), now)
     }
 
     /// Hear the ping in flight if it is overdue at `now`: out [`OVERDUE`]
@@ -413,10 +434,10 @@ impl BitrateWalk {
         if self.next_tick().is_none_or(|due| now < due) {
             return None;
         }
-        let (went, _, quiet) = self.ping?;
+        let (went, heard, quiet) = self.ping?;
         let least = self.least?;
         self.ping = Some((went, Some(now), quiet));
-        self.hear(now.saturating_duration_since(went).saturating_sub(least), quiet, now)
+        self.hear(now.saturating_duration_since(went).saturating_sub(least), quiet, heard.is_some(), now)
     }
 
     /// When [`Self::tick`] next has a ping to hear: `None` while none is in
@@ -460,13 +481,17 @@ impl BitrateWalk {
     }
 
     /// The link lags by `lag`, or by how long a send blocked since the last
-    /// hearing if that is longer, behind sound that was `quiet` or not.
-    /// Returns the rate to code the next packet at if the walk moved.
-    fn hear(&mut self, lag: Duration, quiet: bool, now: Instant) -> Option<u32> {
+    /// hearing if that is longer, behind sound that was `quiet` or not, on a
+    /// ping heard `again` or for the first time. Returns the rate to code the
+    /// next packet at if the walk moved.
+    fn hear(&mut self, lag: Duration, quiet: bool, again: bool, now: Instant) -> Option<u32> {
         let lag = lag.max(std::mem::take(&mut self.blocked));
         let behind = lag >= BEHIND_LAG;
-        self.verdicts = ((self.verdicts << 1) | u8::from(behind)) & ((1 << VERDICT_WINDOW) - 1);
-        if lag >= SKIP_LAG && self.skipping.is_none() {
+        // A ping is one hearing however often it is heard, overdue and then
+        // back: its latest says what it found.
+        self.verdicts = if again { (self.verdicts & !1) | u8::from(behind) } else { ((self.verdicts << 1) | u8::from(behind)) & ((1 << VERDICT_WINDOW) - 1) };
+        let verdict = behind && (self.verdicts.count_ones() >= BEHIND_HEARINGS || lag >= LAG_ALONE);
+        if lag >= SKIP_LAG && verdict && self.skipping.is_none() {
             self.skipping = Some((now, None));
         }
         if behind {
@@ -507,7 +532,7 @@ impl BitrateWalk {
         if self.changed_at.is_some_and(|at| now.saturating_duration_since(at) < cooldown) {
             return None;
         }
-        let moved = if behind && self.verdicts.count_ones() >= BEHIND_HEARINGS {
+        let moved = if verdict {
             // At the floor a link still behind is left to skipping, whatever
             // the lag: no rate drains it, and a lag that does not drain while
             // nothing is written is the path's. Without it, a route 150 ms
@@ -659,11 +684,12 @@ mod tests {
         seen
     }
 
-    /// Two hearings behind, a batch apart, the last written at `at`, as a
-    /// link far enough behind gives.
+    /// Two pings behind, a batch apart, the last written at `at`, as a link
+    /// far enough behind gives: the move they made, the first's alone past
+    /// [`LAG_ALONE`].
     fn verdict(walk: &mut BitrateWalk, lag: Duration, at: Instant) -> Option<u32> {
-        heard(walk, lag, at - BATCH);
-        heard(walk, lag, at)
+        let first = heard(walk, lag, at - BATCH);
+        heard(walk, lag, at).or(first)
     }
 
     #[test]
@@ -708,7 +734,7 @@ mod tests {
         assert!(!walk.ping(start + TRIP), "too soon after the last");
         assert!(!walk.ping(start + PING_SPACING - MS));
         assert!(walk.ping(start + PING_SPACING));
-        let at = start + PING_SPACING + TRIP + SKIP_LAG;
+        let at = start + PING_SPACING + TRIP + LAG_ALONE;
         walk.pong(at);
         assert!(walk.skipping());
         assert!(walk.ping(at), "at once while skipping");
@@ -822,6 +848,8 @@ mod tests {
     /// A ping still out is heard [`OVERDUE`] past the least round trip and
     /// every [`OVERDUE`] after, lagging by as long as it has been out over
     /// the trip: a queue growing behind it is heard before its pong is back.
+    /// However often it is heard it is one hearing, a verdict alone only
+    /// once it is [`LAG_ALONE`] late.
     #[test]
     fn a_ping_still_out_is_heard_as_it_lags() {
         let start = Instant::now();
@@ -835,10 +863,42 @@ mod tests {
         assert_eq!(walk.tick(first), None, "one hearing is not a verdict");
         assert!(walk.behind(), "{OVERDUE:?} is behind");
         assert_eq!(walk.next_tick(), Some(first + OVERDUE));
-        assert_eq!(walk.tick(first + OVERDUE), Some(42_666), "{:?} late is heavy", 2 * OVERDUE);
-        // Its pong, when it is back, is one more hearing.
-        assert_eq!(walk.pong(first + 2 * OVERDUE), None, "inside the cooldown");
+        let mut at = first;
+        while at + OVERDUE < start + TRIP + LAG_ALONE {
+            at += OVERDUE;
+            assert_eq!(walk.tick(at), None, "{:?} late is still the one ping", at - start - TRIP);
+            assert!(!walk.skipping());
+        }
+        assert_eq!(walk.tick(start + TRIP + LAG_ALONE), Some(28_444), "{LAG_ALONE:?} late is a verdict alone, and severe");
+        assert!(walk.skipping());
+        assert_eq!(walk.pong(start + TRIP + LAG_ALONE + OVERDUE), None, "inside the cooldown");
         assert_eq!(walk.next_tick(), None);
+    }
+
+    /// A Wi-Fi hop that holds everything for a moment and lets it go: the
+    /// ping out across it is heard overdue and then back late, and the next
+    /// finds nothing queued. One ping behind, however late under
+    /// [`LAG_ALONE`], neither gives rate up nor skips sound.
+    #[test]
+    fn a_blip_is_one_hearing() {
+        let start = Instant::now();
+        let mut walk = walk(96_000, start);
+        let held = LAG_ALONE - OVERDUE;
+        assert!(held >= SKIP_LAG && held >= LAG_HEAVY);
+        assert!(walk.ping(start));
+        let mut at = start + TRIP + OVERDUE;
+        while at < start + TRIP + held {
+            assert_eq!(walk.tick(at), None);
+            at += OVERDUE;
+        }
+        assert_eq!(walk.pong(start + TRIP + held), None, "back {held:?} late");
+        assert!(!walk.skipping() && walk.behind(), "behind, so silence is shed, but nothing skipped");
+        let (moved, _) = hearings(&mut walk, CLEAR_RUN, Duration::ZERO, start + held);
+        assert_eq!((moved, walk.bitrate()), (vec![], 96_000));
+        // Behind again on the next ping as well: a link that is too narrow.
+        let mut walk = self::walk(96_000, start);
+        assert_eq!(heard(&mut walk, held, start), None);
+        assert_eq!(heard(&mut walk, LAG_HEAVY, start + BATCH + held), Some(42_666));
     }
 
     /// A walk that has had no pong yet does not know the round trip, and
@@ -902,9 +962,9 @@ mod tests {
         let start = Instant::now();
         let mut walk = walk(96_000, start);
         assert!(walk.ping(start));
-        assert_eq!(walk.tick(start + TRIP + SKIP_LAG), None);
+        assert_eq!(walk.tick(start + TRIP + LAG_ALONE), Some(28_444));
         assert!(walk.skipping(), "an overdue ping is a lag too");
-        walk.pong(start + TRIP + SKIP_LAG + MS);
+        walk.pong(start + TRIP + LAG_ALONE + MS);
         assert!(walk.skipping(), "its pong, though clear of its own lag, went before the skip");
     }
 

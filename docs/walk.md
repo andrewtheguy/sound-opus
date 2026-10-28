@@ -16,15 +16,16 @@ be made again:
 The probes ran on lab2, alone (`benchmarks.md` has the machine). The
 simulation is deterministic and runs in its own time, so how busy a machine
 is changes nothing, but libopus codes a little differently on ARM and on
-x86: the logs here are an Apple-silicon Mac's. lab2 ran the sweep of every
-constant too (`bench/walk-sweep-lab2.jsonl` beside `bench/walk-sweep.jsonl`,
-2,494 runs each): 2,073 lines are the same in every figure and in the
-rate's path, and of the 421 that differ, 416 are the speech's, nearly all
-at the floors, by at most 6 kbit/s, 110 ms at the 95th percentile, 0.9 s of
-sound and 0.7 s stalled in a run; the walk as it is differs on 10 of its 58
-runs, by at most 0.7 kbit/s, 9 ms and 0.2 s. Every variant's figure against
-the base reads the same on both machines to a point of a per cent, so the
-constants' table below is either machine's.
+x86: the logs here are an Apple-silicon Mac's. lab2 ran v0.0.7's sweep of
+every constant too (`bench/walk-sweep-lab2.jsonl` beside
+`bench/walk-sweep-v0.0.7.jsonl`, 2,494 runs each): 2,073 lines are the same
+in every figure and in the rate's path, and of the 421 that differ, 416 are
+the speech's, nearly all at the floors, by at most 6 kbit/s, 110 ms at the
+95th percentile, 0.9 s of sound and 0.7 s stalled in a run; the walk as it
+was differs on 10 of its 58 runs, by at most 0.7 kbit/s, 9 ms and 0.2 s.
+Every variant's figure against the base read the same on both machines to a
+point of a per cent. lab2 is gone since; the sweep after it, the constants'
+table below, ran on the Mac alone.
 
 ## What the sound goes through
 
@@ -46,8 +47,10 @@ in virtual time:
   bottleneck and its buffer hold, the socket takes 85 KB unsent and
   unacknowledged before a write blocks, and wakes a blocked writer at two
   thirds of that. The link's rate is the sound's share of it, and can change
-  at given times; a round trip of 40 ms, jitter on top at random, and a
-  delay another stream's queue adds.
+  at given times; a round trip of 40 ms, jitter on top at random, a
+  delay another stream's queue adds, and blips: a Wi-Fi hop past the
+  bottleneck holding every message and acknowledgement for a moment and
+  letting them all go at once.
 - **The browser.** Each packet played back to back from when its message
   arrives, an underrun a stall, any lead past 300 ms trimmed, as zdesk's
   page does.
@@ -77,6 +80,8 @@ the other two, and silence is the one thing the gateway sheds:
 | between-floors | 1000, then 28 from 10 s |
 | under-floor | 1000, then 16 from 10 s |
 | path-delay | 1000, with another stream's queue adding 300 ms from 10 s to 40 s |
+| room-blips | 1000, with a Wi-Fi hop past it holding everything for 80 to 500 ms every 5 s |
+| narrow-blips | the same blips, and the link at 200 from 10 s |
 | hop-burst | wlshare only: 600 KB of picture on its 20 Mbit/s connection to the gateway every 10 s |
 
 ## What a socket holds
@@ -226,7 +231,7 @@ With zdesk's ceiling at 192 kbit/s and a passed stream batched at low
 rates (`bench/walk-batched.jsonl`), 20 s, 133 s and 105 s; with a link
 still behind at the floor skipped too, as v0.0.5 had it
 (`bench/walk-v0.0.5.jsonl`), 19 s, 143 s and 99 s; and with the round after
-wlshare's walk below (`bench/walk.jsonl`), 19 s, 138 s and 92 s. Those two
+wlshare's walk below (`bench/walk-v0.0.7.jsonl`), 19 s, 138 s and 92 s. Those two
 logs have the longer route's four runs as well, which the earlier logs do
 not; the sums here leave them out, so every sum is over the same 54 runs,
 and the round's own table below is over all 58.
@@ -353,7 +358,7 @@ no rate is left to drain a lag, so a link still behind there — a verdict,
 two hearings behind among four a cooldown after the last move — is now
 skipped whatever its lag; one that drains was the sound's, and one that
 does not is the path's, measured over from then. With it, against without
-(`bench/walk-sweep.jsonl`, `base` against `noprobe`, on the walk as it is
+(`bench/walk-sweep-v0.0.7.jsonl`, `base` against `noprobe`, on the walk
 after the round below), the cases that moved:
 
 | case | source | sound | without | with |
@@ -477,7 +482,7 @@ wlshare's walk reads a verdict whose lag has fallen by a fifth or more since
 the last step down as that step draining the queue it left, not as a step
 too small, and waits a cooldown before stepping again. Tried here the same
 way on top of the climb (`bench/walk-drain.jsonl`), and with the two rules
-above (`bench/walk-sweep.jsonl`'s round, `base` against `nodrain` in the
+above (`bench/walk-sweep-v0.0.7.jsonl`'s round, `base` against `nodrain` in the
 sums below), everything it moves is at the floors: 7% less sound is lost
 over every case, 27.7 s of the minute under the floor on music over RDP
 against 29.9, and the sound is heard 6% later at the 95th percentile with
@@ -490,13 +495,13 @@ nothing; a wait there is sound queued longer. A trade, and not taken.
 ### What the round comes to
 
 The walk with the climb, the shorter cooldown while far behind and the
-spaced pings (`bench/walk.jsonl`) against v0.0.5's
+spaced pings (`bench/walk-v0.0.7.jsonl`) against v0.0.5's
 (`bench/walk-v0.0.5.jsonl`), over the same cases:
 
 | log | kbit/s mean | late p95 sum | late max sum | lost s | stalled s | moves | pings |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | walk-v0.0.5 | 152 | 20731 | 49066 | 145.1 | 100.3 | 389 | 30923 |
-| walk | 155 | 19971 | 50412 | 139.1 | 92.3 | 402 | 23189 |
+| walk-v0.0.7 | 155 | 19971 | 50412 | 139.1 | 92.3 | 402 | 23189 |
 
 - Under the dips the rate is 155 to 163 kbit/s where it was 103 to 151;
   a link narrowed to 100 kbit/s loses 0.6 s of the minute against 0.9 on
@@ -513,87 +518,169 @@ spaced pings (`bench/walk.jsonl`) against v0.0.5's
   heard 4% sooner at the 95th percentile and 3% later at the worst, with
   a quarter fewer pings.
 
+## A blip on a Wi-Fi hop
+
+wlshare's sound to a browser on 2.4 GHz Wi-Fi, through zdesk at its ceiling
+of 192 kbit/s, stuttered now and then where the same over a wired LAN did
+not. The gateway's meter of that session, 71 minutes of music, had the rate
+at the ceiling a quarter of the time and at 128 kbit/s or under more than
+half of it, falling by a third or more 122 times, once every 29 s, on a
+link with room for many times the sound. Wi-Fi holds everything for a
+moment now and then — retrying a frame, scanning, yielding the air — and
+lets it all go at once. v0.0.7 heard the ping out across such a moment
+every time it was overdue and again when it came back, each a hearing: one
+held 120 ms past the least round trip was two, a verdict, 150 ms two steps
+down at once, and a single hearing past 200 ms skipped the sound queued
+behind it, which the hop was about to deliver anyway.
+
+The blips' cases above model that. Now a ping is one hearing however often
+it is heard, its latest saying what it found: a link is behind on two pings
+before rate is given up, and the ping after a blip finds nothing queued. A
+skip needs a verdict too. One ping out 400 ms is a verdict alone
+(`LAG_ALONE`), since waiting for its pong to write the next would let a
+link that collapsed queue for as long as it takes to come back. Against
+v0.0.7 (`bench/walk-sweep.jsonl`'s `v0.0.7` lines against
+`bench/walk.jsonl`), the blips' runs:
+
+| case | source | sound | v0.0.7 | walk |
+|---|---|---|---|---|
+| | | | kbit/s, late p95/max ms, lost s, stalled s | kbit/s, late p95/max ms, lost s, stalled s |
+| room-blips | rdp | music | 156, 376/580, 0.6, 1.0 | 192, 383/580, 0.0, 0.8 |
+| room-blips | rdp | speech | 129, 340/580, 0.6, 1.0 | 192, 380/580, 0.0, 1.0 |
+| room-blips | wlshare | music | 94, 290/540, 0.7, 0.9 | 176, 340/540, 0.1, 0.7 |
+| room-blips | wlshare | speech | 105, 260/540, 0.8, 1.0 | 175, 340/540, 0.1, 0.7 |
+| narrow-blips | rdp | music | 152, 429/760, 1.5, 1.3 | 172, 580/760, 0.6, 1.1 |
+| narrow-blips | rdp | speech | 129, 420/580, 0.6, 1.1 | 184, 540/750, 0.0, 1.3 |
+| narrow-blips | wlshare | music | 92, 290/540, 0.7, 1.0 | 171, 360/560, 0.8, 1.1 |
+| narrow-blips | wlshare | speech | 92, 270/540, 0.9, 1.1 | 148, 353/540, 0.3, 0.8 |
+
+On a link with room the rate holds 175 to 192 kbit/s where it was 94 to
+156, and next to nothing is skipped. The sound is heard later at the 95th
+percentile, 340 to 383 ms against 260 to 376: what a blip held is played
+once it arrives rather than skipped. Under the half-second dips RDP's sound
+holds the ceiling where it moved 15 to 20 times a minute.
+
+What it costs is a link that does narrow, or collapse: its first step down
+waits for a second ping, or for one to be 400 ms late. Summed over groups
+of cases — the blips'; the links that narrow, swing or dip (narrow,
+narrower, recover, wobble, dips, start-low, hop-burst); the floors'; and
+every case — with lost the sound dropped and skipped:
+
+| log | blips: kbit/s, lost s, stalled s | narrowing: kbit/s, lost s, stalled s | floors: lost s, late max sum s | every case: kbit/s, lost s, stalled s, moves |
+|---|---|---|---|---|
+| v0.0.7 | 119, 6.2, 8.5 | 157, 5.7, 14.4 | 128.8, 32 | 151, 145.2, 100.8, 543 |
+| alone 300 ms | 158, 5.8, 8.3 | 161, 6.8, 16.5 | 133.6, 39 | 157, 150.4, 111.0, 479 |
+| walk, 400 ms | 176, 1.8, 7.4 | 162, 7.4, 17.2 | 138.8, 49 | 160, 152.6, 118.6, 410 |
+| alone 600 ms | 180, 1.3, 7.2 | 161, 7.9, 17.5 | 147.1, 62 | 160, 160.9, 129.4, 398 |
+
+Where a link narrows, swings or dips 1.7 s more sound is lost over the 26
+runs, 2.8 s more stalled; between and under the floors 10 s more over 8
+runs, the worst packet up to 3.1 s later. Over every case 5% more sound is
+lost and 18% more stalled, for 9 kbit/s more and a quarter fewer moves. A
+link under 32 kbit/s is not one a listener hears as the same sound either
+way, and blips are every Wi-Fi link's; 300 ms skips 0.3 to 0.6 s a minute
+on the blips again and holds wlshare's sound at 161 kbit/s there. A ping
+alone a verdict at the floor, from the skip's lag or from any lag behind,
+changed nothing but the floors', 1 to 2% more lost: their worst lateness is
+the first collapse, before the walk is at the floor.
+
+The browser's lead is zdesk's page's, and starts at nothing: a blip is a
+gap there whatever the walk does. With no skip on a blip, what it held
+arrives at once and becomes the page's lead, up to 300 ms, which carries the
+next blip as far.
+
 ## The constants
 
 `tools/walk-sweep.sh` builds the crate with each constant moved one way and
 the other and runs every case on it, at zdesk's ceiling and batching
-(`bench/walk-sweep.jsonl`, a line a case and variant; `v0.0.5` is the walk
-before the round above). Against the walk as it is, over every case and
-over those where a link narrowed, swung or dipped — every case but the
-jittery ones and the floors' — and the range of rates held on the jittery
-ones:
+(`bench/walk-sweep.jsonl`, a line a case and variant; `v0.0.7` is the walk
+before the blips' round above, and `alone…` its `LAG_ALONE`). Against the
+walk as it is, over every case, over those where a link narrowed, swung or
+dipped — every case but the jittery ones, the blips' and the floors' —
+over the blips', and the range of rates held on the jittery ones:
 
-| Variant | Rate | Lost | Late p95 | Moves | Rate, narrowed | Lost, narrowed | Late p95, narrowed | Stalled, narrowed | Moves, narrowed | kbit/s, jittery |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| base | +0% | +0% | +0% | +0% | +0% | +0% | +0% | +0% | +0% | 163–192 |
-| behind150 | +1% | +9% | +9% | +2% | +1% | +195% | +2% | +81% | +3% | 170–192 |
-| behind20 | -20% | +91% | -8% | +16% | -0% | -2% | -7% | -8% | +11% | 32–43 |
-| behind60 | -7% | +18% | -1% | +14% | +0% | -11% | -1% | -5% | +4% | 39–192 |
-| behind80 | -5% | +5% | -1% | +8% | +1% | -10% | -1% | -4% | -0% | 48–192 |
-| clear25 | +0% | +0% | -0% | -1% | +0% | +0% | -0% | -0% | +0% | 175–192 |
-| climb1500 | -1% | +1% | -0% | -1% | -1% | +12% | -0% | +4% | -1% | 163–192 |
-| climb500 | +0% | +2% | +0% | +13% | +0% | +28% | +1% | +12% | +17% | 163–192 |
-| cool1 | +0% | +1% | +0% | +8% | +0% | +4% | +0% | +2% | +9% | 169–192 |
-| cool3 | -0% | -0% | +0% | +0% | -0% | +0% | +0% | +0% | +0% | 163–192 |
-| down34 | +1% | +2% | -0% | +5% | +1% | +25% | +0% | +10% | +7% | 177–192 |
-| floor16 | -1% | -30% | -1% | +11% | -0% | +0% | -0% | +0% | +1% | 163–192 |
-| floor32 | +1% | +37% | +6% | -7% | +0% | +0% | -0% | -0% | +0% | 163–192 |
-| hearings3 | +1% | +0% | +4% | -3% | +1% | +25% | +1% | +15% | -3% | 169–192 |
-| heavy1500 | +0% | +3% | +2% | +1% | +0% | +4% | +1% | +3% | +0% | 163–192 |
-| heavy300 | +0% | +2% | +1% | +3% | +0% | +23% | +1% | +8% | +3% | 169–192 |
-| heavy500 | -0% | +0% | +1% | +5% | -1% | -2% | +2% | +0% | +7% | 163–192 |
-| hold30 | -0% | -1% | -0% | -11% | -1% | -7% | +0% | -2% | -11% | 175–192 |
-| hold5 | +0% | +4% | +1% | +19% | +0% | +17% | +1% | +11% | +19% | 168–192 |
-| idle10 | -0% | +0% | -0% | -0% | -0% | +0% | -0% | -0% | -0% | 163–192 |
-| idle25 | +0% | +0% | +0% | +0% | +0% | +0% | +0% | +0% | +0% | 163–192 |
-| noclimb | -2% | +1% | -0% | -6% | -3% | +8% | -1% | +1% | -8% | 163–192 |
-| noheavy | -0% | +5% | +3% | +2% | -0% | +16% | +2% | +6% | +2% | 163–192 |
-| nooverdue | +3% | +30% | +69% | -10% | +1% | +58% | +1% | +29% | -9% | 177–192 |
-| noprobe | -5% | -10% | +6% | -5% | -7% | -15% | -0% | -0% | -5% | 163–192 |
-| noquiet | +1% | +11% | +3% | +18% | +1% | +88% | +2% | +37% | +20% | 163–192 |
-| noskip | -9% | -94% | +730% | -8% | -12% | -100% | +6% | -6% | -2% | 163–192 |
-| nospacing | +0% | -1% | +2% | +2% | +0% | +4% | -0% | +3% | +2% | 169–192 |
-| onestep | +1% | +12% | +7% | +5% | +0% | +27% | +2% | +10% | +1% | 169–192 |
-| overdue200 | +0% | +3% | +2% | -2% | +0% | +43% | -0% | +22% | -1% | 177–192 |
-| overdue50 | -0% | -1% | +1% | +5% | -0% | +8% | -0% | +3% | +4% | 164–192 |
-| quiet4 | -0% | +4% | +1% | +2% | +0% | +0% | -0% | +0% | +0% | 163–192 |
-| quiet8 | +0% | +4% | +1% | +2% | +0% | +0% | -0% | +0% | +0% | 163–192 |
-| skip150 | +1% | +7% | -3% | +1% | +2% | +55% | -4% | +10% | -1% | 163–192 |
-| skip300 | +0% | -2% | +2% | -1% | +0% | -34% | +3% | -6% | -1% | 163–192 |
-| spacing150 | +0% | -1% | -0% | +0% | -0% | +11% | -2% | +4% | +1% | 163–192 |
-| spacing180 | -0% | -1% | +1% | +3% | -0% | +13% | +0% | +6% | +5% | 162–192 |
-| span2 | +1% | +6% | +2% | +22% | +1% | +54% | +2% | +22% | +24% | 169–192 |
-| span5 | -2% | -1% | -1% | -17% | -2% | -7% | -2% | -6% | -16% | 163–192 |
-| together | -2% | +0% | -2% | -18% | -3% | -3% | -2% | -6% | -16% | 163–192 |
-| up32 | -1% | -0% | -0% | +15% | -2% | +3% | -0% | +1% | +20% | 167–192 |
-| up8 | +1% | +4% | +0% | -8% | +1% | +32% | +0% | +14% | -9% | 170–192 |
-| v0.0.5 | -2% | +4% | +4% | -3% | -4% | +12% | +0% | +2% | -6% | 169–192 |
+| Variant | Rate | Lost | Late p95 | Moves | Rate, narrowed | Lost, narrowed | Late p95, narrowed | Stalled, narrowed | Moves, narrowed | Rate, blips | Lost, blips | Stalled, blips | kbit/s, jittery |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| alone1000 | +1% | +18% | +57% | -3% | -0% | +4% | +0% | +1% | +0% | +2% | -28% | -4% | 177–192 |
+| alone200 | -2% | -2% | -4% | +23% | -1% | +7% | -2% | -2% | +6% | -14% | +310% | +26% | 177–192 |
+| alone250 | -2% | -1% | -1% | +20% | -0% | +2% | -0% | -2% | +4% | -12% | +224% | +14% | 177–192 |
+| alone300 | -2% | -1% | -0% | +17% | -0% | -7% | -0% | -4% | +2% | -10% | +221% | +13% | 177–192 |
+| alone600 | +0% | +5% | +2% | -3% | -0% | +4% | +0% | +1% | +0% | +2% | -28% | -4% | 177–192 |
+| base | +0% | +0% | +0% | +0% | +0% | +0% | +0% | +0% | +0% | +0% | +0% | +0% | 177–192 |
+| behind150 | +1% | +7% | +9% | -1% | +1% | +143% | +1% | +57% | -3% | +2% | +9% | +1% | 171–192 |
+| behind20 | -18% | +81% | -7% | +25% | -1% | -32% | -5% | -22% | +14% | -3% | -21% | -21% | 32–43 |
+| behind60 | -6% | +12% | -3% | +15% | -0% | -32% | -2% | -18% | +3% | -2% | -22% | -20% | 39–192 |
+| behind80 | -5% | +5% | -2% | +11% | -0% | -19% | -2% | -11% | -1% | -2% | -21% | -13% | 48–192 |
+| clear25 | -0% | +0% | +0% | +1% | -0% | +2% | +0% | +2% | +2% | -0% | -2% | -1% | 175–192 |
+| climb1500 | -1% | -0% | +0% | -1% | -1% | -3% | +0% | -1% | -1% | -1% | +0% | +0% | 177–192 |
+| climb500 | +0% | +0% | +0% | +5% | +0% | +6% | +0% | +2% | +4% | -1% | -20% | -4% | 177–192 |
+| cool1 | -0% | +1% | -1% | +3% | -0% | +1% | -2% | -1% | +3% | +0% | +0% | +0% | 176–192 |
+| cool3 | -0% | +0% | +0% | -0% | -0% | -1% | +0% | -0% | -0% | +0% | +0% | +0% | 177–192 |
+| down34 | +1% | +2% | -1% | +5% | +1% | +21% | -2% | +1% | +3% | +3% | +21% | +7% | 174–192 |
+| floor16 | -1% | -25% | +0% | +9% | -0% | +0% | -0% | +0% | +0% | +0% | +0% | +0% | 177–192 |
+| floor32 | +1% | +32% | +4% | -6% | +0% | +0% | -0% | +0% | -1% | +0% | +0% | +0% | 177–192 |
+| hearings3 | -1% | -1% | +12% | +3% | -2% | +30% | +4% | +17% | +0% | -1% | -30% | -1% | 163–192 |
+| heavy1500 | +0% | +0% | +1% | -3% | +0% | +6% | +1% | +0% | -4% | +0% | +0% | +0% | 177–192 |
+| heavy300 | +0% | +1% | -1% | -0% | -0% | +17% | -2% | +3% | -2% | +1% | +0% | +0% | 177–192 |
+| heavy500 | -1% | +0% | +0% | +10% | -1% | +3% | -1% | -2% | +11% | -3% | -1% | +4% | 177–192 |
+| hold30 | -0% | -0% | -0% | -7% | -0% | -6% | -1% | -2% | -11% | -0% | +12% | -0% | 175–192 |
+| hold5 | -0% | +4% | +3% | +19% | +0% | +24% | +1% | +11% | +15% | -1% | +51% | +11% | 169–192 |
+| idle10 | -0% | +0% | -0% | -0% | -0% | +0% | -0% | +0% | -0% | +0% | +0% | +0% | 177–192 |
+| idle25 | -0% | +0% | -0% | +1% | -0% | +0% | -0% | -0% | +2% | +0% | +0% | +0% | 177–192 |
+| noclimb | -1% | -1% | +0% | -3% | -2% | -3% | -0% | -2% | -3% | -2% | -23% | -3% | 177–192 |
+| noheavy | +0% | +1% | -1% | -6% | +0% | +19% | -2% | +4% | -8% | +0% | +0% | +0% | 177–192 |
+| nooverdue | +1% | +40% | +285% | -3% | -0% | -0% | +1% | +2% | -3% | -1% | +18% | +5% | 177–192 |
+| noprobe | -4% | -7% | +5% | -4% | -7% | -13% | -0% | -0% | -6% | +0% | +0% | +0% | 177–192 |
+| noquiet | +1% | +6% | +2% | +15% | +1% | +63% | +2% | +28% | +16% | +2% | +4% | +1% | 177–192 |
+| noskip | -9% | -95% | +646% | +0% | -13% | -100% | +8% | -5% | +3% | -2% | -100% | -9% | 177–192 |
+| nospacing | -0% | +0% | +3% | +2% | +0% | -4% | -0% | -3% | -1% | -1% | -1% | +0% | 163–192 |
+| onestep | +1% | +7% | +4% | +1% | +0% | +19% | -2% | +4% | -7% | +2% | +0% | +0% | 177–192 |
+| overdue200 | -0% | -2% | +2% | -1% | -0% | -9% | +1% | -3% | -2% | -1% | +23% | +5% | 177–192 |
+| overdue50 | -0% | +1% | +3% | +4% | +0% | +4% | +0% | +2% | +1% | -1% | +0% | +0% | 177–192 |
+| quiet4 | +0% | +1% | +1% | +2% | +0% | +0% | +0% | -0% | -0% | +0% | +2% | +1% | 177–192 |
+| quiet8 | +0% | +1% | +1% | +2% | +0% | +0% | +0% | -0% | -0% | +0% | +2% | +1% | 177–192 |
+| skip150 | +1% | +4% | -2% | -3% | +2% | +45% | -3% | +9% | -5% | +0% | +10% | +1% | 177–192 |
+| skip300 | -1% | -2% | +4% | +5% | -1% | -31% | +5% | -7% | +5% | -1% | -32% | -1% | 177–192 |
+| spacing150 | +1% | -2% | -0% | -8% | +1% | +1% | -2% | -2% | -11% | +3% | -9% | -2% | 163–192 |
+| spacing180 | +0% | -2% | -1% | -6% | +0% | +2% | -1% | +0% | -8% | +1% | -19% | -1% | 162–192 |
+| span2 | +1% | +6% | +4% | +28% | +1% | +61% | +3% | +29% | +28% | +2% | +6% | +2% | 169–192 |
+| span5 | -2% | -0% | -1% | -11% | -2% | -10% | -1% | -7% | -12% | -3% | +12% | +1% | 166–192 |
+| together | -2% | -0% | -2% | -18% | -3% | -10% | -3% | -8% | -19% | -3% | +12% | +1% | 171–192 |
+| up32 | -1% | -0% | -1% | +20% | -1% | -2% | -1% | -1% | +22% | -1% | +6% | +4% | 167–192 |
+| up8 | +1% | +3% | +1% | -7% | +1% | +23% | +1% | +11% | -10% | +0% | -18% | -1% | 170–192 |
+| v0.0.7 | -6% | -5% | -6% | +32% | -2% | -14% | -3% | -15% | +10% | -33% | +244% | +14% | 163–192 |
 
-What it says, and what each constant's comment carries:
+What it says, and what each constant's comment carries. The comments of
+constants the blips' round left alone carry the figures they were settled
+on, against the walk then; the table is today's:
 
 - The behind threshold is set by jitter: at 20 ms the walk read up to
   60 ms of it on a link with room as a link behind and walked to 32 to
   43 kbit/s; at 60 and 80 ms, up to 100 ms of it walked to 39 to 57 and 48
-  to 88. At 150 ms three times the sound was lost where a link narrowed,
+  to 88. At 150 ms 2.4 times the sound was lost where a link narrowed,
   swung or dipped.
-- Without skipping, the sound under the floor is 16 to 41 s late; without
-  overdue hearings, 69% later at the 95th percentile summed, and 30% more
-  is lost over every case. Without the floor's skipping (`noprobe`), 10%
-  less is lost, all of it under the floors, and the longer route holds the
-  rate at the floor (above).
-- Without the climb the rate is 2% lower, most of it under the dips and on
-  the longer route; without quiet sound told apart 11% more is lost over
-  every case and 88% more where a link narrowed, swung or dipped; without
-  the shorter cooldown while far behind 5% more is lost, 16% where a link
-  narrowed; without the spaced pings 1% less is lost for a third more pings
-  and 4% more lost where a link narrowed.
+- Without skipping, the sound under the floor is 18 to 41 s late; without
+  overdue hearings, 3.9 times as late at the 95th percentile summed, and
+  40% more is lost over every case. Without the floor's skipping
+  (`noprobe`), 7% less is lost, all of it under the floors, and the longer
+  route holds the rate at the floor (above).
+- Without the climb the rate is 1% lower, 2% where a link narrowed, swung or
+  dipped; without quiet sound told apart 6% more is lost over every case
+  and 63% more where a link narrowed, swung or dipped; without the shorter
+  cooldown while far behind 1% more is lost, 19% where a link narrowed;
+  without the spaced pings as much is lost, 4% less where a link narrowed,
+  for a third more pings, and the jittery links hold 163 kbit/s at worst
+  against 177.
 - Every step-size, span and cooldown variant either loses more sound or
-  trades rate for less loss. A 30 s refusal hold loses 7% less where a
+  trades rate for less loss. A 30 s refusal hold loses 6% less where a
   link narrowed, swung or dipped and moves the rate 11% less often, but
-  holds it at 128 to 164 kbit/s after a link recovers where this is back
-  at 144 to 174; a 5 s clear span, alone or with the 1 s cooldown and the
-  30 s hold, holds speech at 110 to 138 kbit/s under the dips where this
-  keeps 160 to 163. Neither is taken.
+  holds it at 151 to 163 kbit/s where a link recovers where this holds
+  160 to 173; a 5 s clear span, alone or with the 1 s cooldown and the
+  30 s hold, holds speech at 120 kbit/s under the dips where this keeps
+  182 to 192. Neither is taken.
+- On the blips, a third hearing behind, a 300 ms skip, a quicker or no
+  climb and sparser pings each lose 19 to 32% less, of 1.8 s; each loses
+  more where a link narrowed, is heard later there, or holds less rate.
 
 ## The floor
 
@@ -602,9 +689,9 @@ folds the stereo below it. Measured (`benchmarks.md`, the floor), it does
 neither at 24: every packet of every recording is stereo at 24 and none at
 16, and the band is the same at 16, 24 and 32. So the walk's floor is
 24 kbit/s now, a worse sound than 32 but the same one. Where the link sits
-between the two, and under both (`bench/walk-sweep.jsonl`, the `floor32`
-variant, against `bench/walk.jsonl`, on the walk as it is after the round
-above):
+between the two, and under both (`bench/walk-sweep-v0.0.7.jsonl`, the
+`floor32` variant, against `bench/walk-v0.0.7.jsonl`, on the walk after the
+round above):
 
 | case | source | sound | floor 32 | floor 24 |
 |---|---|---|---|---|
@@ -649,7 +736,8 @@ The walk is the users' to drive, and zdesk drives it differently now:
   ping, and a longer one.
 - The picture as a stream of its own: it appears as the dips, and as the
   path's delay, not as a TCP flow sharing the bottleneck.
-- Jitter as a Wi-Fi hop has it, in bursts: here it is uniform and
-  independent, message by message.
+- Jitter as a Wi-Fi hop has it: here it is uniform and independent,
+  message by message, or blips at set times and of set lengths, where a
+  real hop's come when they come, clustered.
 - The browser's decoding, and any time a page takes to read a message.
 - A link's share moving with the picture's: each case gives the sound's own.
