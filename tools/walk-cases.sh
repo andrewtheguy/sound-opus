@@ -39,6 +39,18 @@ dips() {
     echo "$out"
 }
 
+# A Wi-Fi hop holding everything every five seconds, for 80 to 500 ms, as a
+# 2.4 GHz link retrying, scanning or yielding the air does, with room to
+# spare between.
+blips() {
+    out= t=5
+    for length in 100 250 150 400 120 300 200 500 80 180 350; do
+        out="$out${out:+,}$length@$t"
+        t=$((t + 5))
+    done
+    echo "$out"
+}
+
 run() {
     case=$1
     shift
@@ -53,6 +65,10 @@ run room --link 1000 "$@"
 run room-jitter --link 1000 --jitter 60 "$@"
 run room-jitter100 --link 1000 --jitter 100 "$@"
 run narrow-jitter --link 1000,200@10 --jitter 60 "$@"
+# Blips on a link with room, which no rate drains or needs to; and on one
+# that narrows as well, which the walk must still step down for.
+run room-blips --link 1000 --blip "$(blips)" "$@"
+run narrow-blips --link 1000,200@10 --blip "$(blips)" "$@"
 run narrow --link 1000,200@10 "$@"
 run narrower --link 1000,100@10 "$@"
 run recover --link 1000,150@10,1000@25 "$@"

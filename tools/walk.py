@@ -8,8 +8,9 @@ figures in every log side by side, the first log being the run before, and
 a last table of their sums over every case. A log of socket probes: a row a
 probe. A sweep, every line with its `variant` (tools/walk-sweep.sh's logs
 put together): each variant against `base`, over every case and over those
-where a link narrowed, swung or dipped — every case but the jittery ones and
-the floors' — with the rate it held on the jittery ones.
+where a link narrowed, swung or dipped — every case but the jittery ones,
+the blips' and the floors' — over the blips', and with the rate it held on
+the jittery ones.
 
     python3 -I tools/walk.py --sweep walk-sweep.jsonl
 """
@@ -101,8 +102,11 @@ def sweep(rows):
     def jittery(r):
         return "jitter" in r["case"]
 
+    def blipped(r):
+        return "blips" in r["case"]
+
     def moving(r):
-        return not jittery(r) and "floor" not in r["case"]
+        return not jittery(r) and not blipped(r) and "floor" not in r["case"]
 
     def totals(rows):
         return {
@@ -118,15 +122,17 @@ def sweep(rows):
 
     base = variants["base"]
     every, narrowed = totals(base), totals([r for r in base if moving(r)])
-    print("| Variant | Rate | Lost | Late p95 | Moves | Rate, narrowed | Lost, narrowed | Late p95, narrowed | Stalled, narrowed | Moves, narrowed | kbit/s, jittery |")
-    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    blips = totals([r for r in base if blipped(r)])
+    print("| Variant | Rate | Lost | Late p95 | Moves | Rate, narrowed | Lost, narrowed | Late p95, narrowed | Stalled, narrowed | Moves, narrowed | Rate, blips | Lost, blips | Stalled, blips | kbit/s, jittery |")
+    print("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for name, rows in variants.items():
-        a, n = totals(rows), totals([r for r in rows if moving(r)])
+        a, n, b = totals(rows), totals([r for r in rows if moving(r)]), totals([r for r in rows if blipped(r)])
         jitter = [r["rate_mean"] for r in rows if jittery(r)]
-        print("| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %.0f–%.0f |" % (
+        print("| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %.0f–%.0f |" % (
             name, change(a["rate"], every["rate"]), change(a["lost"], every["lost"]), change(a["late"], every["late"]), change(a["moves"], every["moves"]),
             change(n["rate"], narrowed["rate"]), change(n["lost"], narrowed["lost"]), change(n["late"], narrowed["late"]),
-            change(n["stalled"], narrowed["stalled"]), change(n["moves"], narrowed["moves"]), min(jitter), max(jitter),
+            change(n["stalled"], narrowed["stalled"]), change(n["moves"], narrowed["moves"]),
+            change(b["rate"], blips["rate"]), change(b["lost"], blips["lost"]), change(b["stalled"], blips["stalled"]), min(jitter), max(jitter),
         ))
 
 

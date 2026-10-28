@@ -6,7 +6,7 @@
 //!
 //! ```text
 //! walk-sim RECORDING [--source rdp|wlshare] [--link KBPS[,KBPS@SECS...]]
-//!          [--rtt MS] [--jitter MS] [--delay MS[,MS@SECS...]] [--queue MS]
+//!          [--rtt MS] [--jitter MS] [--delay MS[,MS@SECS...]] [--blip MS@SECS[,...]] [--queue MS]
 //!          [--sndbuf KB] [--hop MS] [--hop-link MBPS] [--burst KB@SECS[,...]]
 //!          [--passed-lag] [--batch-below KBPS,MS] [--ceiling KBPS] [--held] [--secs S]
 //!          [--pause S,EVERY] [--case NAME] [--timeline FILE]
@@ -29,7 +29,10 @@
 //! `--rtt` its round trip, 40 ms, and `--jitter` up to how much more each
 //! message and pong takes, at random, keeping their order; `--delay` how
 //! much longer than that the path takes from each `@` second on, a queue
-//! another stream keeps at the bottleneck, 0 by default; `--queue` the
+//! another stream keeps at the bottleneck, 0 by default; `--blip` a hop
+//! past the bottleneck holding everything for MS from each `@` second, as
+//! Wi-Fi does while it retries, scans or yields the air, then letting it
+//! all go at once, messages and acknowledgements alike; `--queue` the
 //! buffer at its bottleneck, in milliseconds at its rate, 100. The gateway's
 //! socket to it holds `--sndbuf` KB before a write blocks, 85, what Linux's
 //! autotuning gives a connection this slow (measured, `docs/walk.md`), and
@@ -150,12 +153,20 @@ struct Socket {
     taken: u64,
     /// How much longer than its round trip the path takes from when on.
     delays: Vec<(Duration, Duration)>,
+    /// When the hop to the browser holds everything, and until when.
+    blips: Vec<(Duration, Duration)>,
 }
 
 impl Socket {
     /// How much longer than its round trip the path takes at `t`.
     fn delay_at(&self, t: Duration) -> Duration {
         self.delays.iter().rev().find(|(from, _)| *from <= t).map_or(Duration::ZERO, |(_, delay)| *delay)
+    }
+
+    /// When what reaches the hop to the browser at `t` is across it: at
+    /// once, or once a blip holding it ends.
+    fn reach(&self, t: Duration) -> Duration {
+        self.blips.iter().find(|(from, until)| *from <= t && t < *until).map_or(t, |(_, until)| *until)
     }
 
     /// Bytes acknowledged by `t`.
@@ -201,7 +212,7 @@ impl Socket {
             exit = self.link.pass(sent, segment);
             // Acknowledgements are cumulative: a segment is never acked before
             // the one ahead of it, even where the path's delay fell between.
-            let acked = (exit + self.rtt + self.delay_at(exit)).max(self.segments.last().map_or(Duration::ZERO, |s| s.acked));
+            let acked = (self.reach(exit + self.rtt / 2 + self.delay_at(exit)) + self.rtt / 2).max(self.segments.last().map_or(Duration::ZERO, |s| s.acked));
             self.segments.push(Segment { end, acked });
             self.taken = end;
             left -= segment;
@@ -451,6 +462,7 @@ fn main() -> Result<(), Error> {
     let (mut ceiling, mut secs, mut pause) = (192.0, None, None);
     let mut batch_below = (64_000u32, Duration::from_millis(60));
     let mut delay_arg = "0".to_string();
+    let mut blip_arg = String::new();
     let mut bursts: Vec<(Duration, u64)> = Vec::new();
     let (mut case, mut timeline) = (String::new(), None);
     let mut args = std::env::args().skip(1);
@@ -470,6 +482,7 @@ fn main() -> Result<(), Error> {
             "--queue" => queue = number(&arg, &value()?)?,
             "--sndbuf" => sndbuf = number(&arg, &value()?)?,
             "--delay" => delay_arg = value()?,
+            "--blip" => blip_arg = value()?,
             "--hop" => hop = number(&arg, &value()?)?,
             "--hop-link" => hop_link = number(&arg, &value()?)?,
             "--burst" => {
@@ -529,7 +542,19 @@ fn main() -> Result<(), Error> {
     if delays.windows(2).any(|pair| pair[1].0 < pair[0].0) {
         return Err("--delay steps go in order of their times".into());
     }
-    let mut socket = Socket { link: Link { rates: rates(&link_arg)?, free: Duration::ZERO }, rtt, queue: ms(queue), sndbuf: (sndbuf * 1e3) as u64, segments: Vec::new(), taken: 0, delays };
+    let blips = blip_arg
+        .split(',')
+        .filter(|step| !step.is_empty())
+        .map(|step| {
+            let (length, from) = step.split_once('@').ok_or("--blip MS@SECS")?;
+            let from = Duration::from_secs_f64(number("--blip", from)?);
+            Ok((from, from + ms(number("--blip", length)?)))
+        })
+        .collect::<Result<Vec<_>, Error>>()?;
+    if blips.windows(2).any(|pair| pair[1].0 < pair[0].1) {
+        return Err("--blip steps go in order of their times, one ended before the next".into());
+    }
+    let mut socket = Socket { link: Link { rates: rates(&link_arg)?, free: Duration::ZERO }, rtt, queue: ms(queue), sndbuf: (sndbuf * 1e3) as u64, segments: Vec::new(), taken: 0, delays, blips };
     let mut hop_wire = Link { rates: vec![(Duration::ZERO, hop_link * 1e6 / 8.0)], free: Duration::ZERO };
     let mut seed = 0x2545_f491_4f6c_dd1du64;
     // Up to `--jitter` more on the way to the browser, at random.
@@ -603,7 +628,7 @@ fn main() -> Result<(), Error> {
             if walking.walk.skipping() && walking.ping(base + at) {
                 pings += 1;
                 let (taken, exit) = socket.write(at, PING_BYTES);
-                browser.arrived = browser.arrived.max(exit + rtt / 2 + socket.delay_at(exit) + wobble());
+                browser.arrived = browser.arrived.max(socket.reach(exit + rtt / 2 + socket.delay_at(exit) + wobble()));
                 pong = Some(browser.arrived + rtt / 2);
                 writing = Some(taken);
             }
@@ -658,14 +683,14 @@ fn main() -> Result<(), Error> {
                 if walking.ping(base + at) {
                     pings += 1;
                     let (taken, exit) = socket.write(at, PING_BYTES);
-                    browser.arrived = browser.arrived.max(exit + rtt / 2 + socket.delay_at(exit) + wobble());
+                    browser.arrived = browser.arrived.max(socket.reach(exit + rtt / 2 + socket.delay_at(exit) + wobble()));
                     pong = Some(browser.arrived + rtt / 2);
                     at = taken;
                 }
                 let bytes = 4 + packets.iter().map(|p| 2 + p.bytes as u64).sum::<u64>() + MESSAGE_OVERHEAD;
                 let (taken, exit) = socket.write(at, bytes);
                 writing = Some(taken);
-                browser.arrived = browser.arrived.max(exit + rtt / 2 + socket.delay_at(exit) + wobble());
+                browser.arrived = browser.arrived.max(socket.reach(exit + rtt / 2 + socket.delay_at(exit) + wobble()));
                 for packet in &packets {
                     browser.play(browser.arrived, packet);
                 }
@@ -774,7 +799,7 @@ fn main() -> Result<(), Error> {
     }
     let path = walking.path.iter().map(|(t, rate)| format!("{}@{:.1}", rate / 1000, t.as_secs_f64())).collect::<Vec<_>>().join(" ");
     println!(
-        "{{\"case\":{},\"recording\":{},\"source\":\"{}\",\"link\":\"{link_arg}\",\"rtt\":{},\"jitter\":{},\"queue\":{},\"delay\":\"{delay_arg}\",\"sndbuf\":{sndbuf},\"passed_lag\":{passed_lag},\"batch_below\":[{},{}],\"held\":{held},\"ceiling\":{},\"pause\":{},\"secs\":{:.1},\
+        "{{\"case\":{},\"recording\":{},\"source\":\"{}\",\"link\":\"{link_arg}\",\"rtt\":{},\"jitter\":{},\"queue\":{},\"delay\":\"{delay_arg}\",\"blip\":\"{blip_arg}\",\"sndbuf\":{sndbuf},\"passed_lag\":{passed_lag},\"batch_below\":[{},{}],\"held\":{held},\"ceiling\":{},\"pause\":{},\"secs\":{:.1},\
 \"rate_mean\":{:.1},\"rate_p10\":{:.0},\"late_p50\":{:.0},\"late_p95\":{:.0},\"late_max\":{:.0},\"heard\":{:.2},\"dropped\":{:.2},\"gaps\":{},\"skipped\":{:.2},\"trimmed\":{:.2},\"shed\":{:.2},\"stalls\":{},\"stalled\":{:.2},\"behind\":{:.2},\"pings\":{pings},\"moves\":{},\"downs\":{},\"first_down\":{},\"path\":{}}}",
         json(&case),
         json(&name),

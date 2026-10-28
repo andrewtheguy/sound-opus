@@ -94,6 +94,11 @@ variant overdue50 OVERDUE="$(ms 50)"
 variant overdue200 OVERDUE="$(ms 200)"
 variant nooverdue OVERDUE="$(secs 3600)"
 variant hearings3 BEHIND_HEARINGS=3
+variant alone200 LAG_ALONE="$(ms 200)"
+variant alone250 LAG_ALONE="$(ms 250)"
+variant alone300 LAG_ALONE="$(ms 300)"
+variant alone600 LAG_ALONE="$(ms 600)"
+variant alone1000 LAG_ALONE="$(ms 1000)"
 variant span2 CLEAR_SPAN="$(secs 2)"
 variant span5 CLEAR_SPAN="$(secs 5)"
 variant cool1 ADJUST_COOLDOWN="$(secs 1)"
@@ -123,8 +128,9 @@ variant heavy1500 HEAVY_COOLDOWN="$(ms 1500)"
 variant nospacing PING_SPACING="$(ms 0)"
 variant spacing150 PING_SPACING="$(ms 150)"
 variant spacing180 PING_SPACING="$(ms 180)"
-# Every item of this round off: the walk as v0.0.5 had it.
-variant v0.0.5 CLIMB_SPAN="$(secs 3)" HEAVY_COOLDOWN="$(secs 2)" PING_SPACING="$(ms 0)"
+# This round off: the walk as v0.0.7 had it, every hearing of a ping one
+# more, and a lag past the skip's skipped on one.
+variant v0.0.7 's/if again \{/if false {/' 's/ \|\| lag >= LAG_ALONE\)/)/' 's/lag >= SKIP_LAG && verdict && /lag >= SKIP_LAG \&\& /'
 
 if [ -z "$built" ]; then
     echo "ONLY names no variant of this script: $only" >&2
