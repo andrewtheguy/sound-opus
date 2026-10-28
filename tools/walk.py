@@ -108,7 +108,11 @@ def sweep(rows):
     def moving(r):
         return not jittery(r) and not blipped(r) and "floor" not in r["case"]
 
+    # A group no case of the log is in, such as the blips' in a sweep from
+    # before them, has no figures.
     def totals(rows):
+        if not rows:
+            return dict.fromkeys(("rate", "lost", "late", "stalled", "moves"))
         return {
             "rate": sum(r["rate_mean"] for r in rows) / len(rows),
             "lost": sum(r["dropped"] + r["skipped"] for r in rows),
@@ -118,7 +122,7 @@ def sweep(rows):
         }
 
     def change(mine, base):
-        return "%+.0f%%" % ((mine / base - 1) * 100) if base else "—"
+        return "%+.0f%%" % ((mine / base - 1) * 100) if mine is not None and base else "—"
 
     base = variants["base"]
     every, narrowed = totals(base), totals([r for r in base if moving(r)])
