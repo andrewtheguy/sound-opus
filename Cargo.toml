@@ -1,6 +1,6 @@
 [package]
 name = "sound-opus"
-version = "0.0.8"
+version = "0.0.9"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/andrewtheguy/sound-opus"
@@ -16,4 +16,4 @@ thiserror = "2"
 # C is compiled and nothing is looked for at run time. The crate is `opus` 0.3.1
 # with that sys crate under it. The tag pins the crate; the archives are the
 # latest release's.
-opus = { package = "opus-prebuilt", git = "https://github.com/andrewtheguy/libopus-prebuilt", tag = "v1.6.1-20260906161304-8dd83e8" }
+opus = { package = "opus-prebuilt", git = "https://github.com/andrewtheguy/libopus-prebuilt", tag = "v1.6.1-20261106175320-d681e6f" }

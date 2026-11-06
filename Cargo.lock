@@ -5,12 +5,12 @@ version = 4
 [[package]]
 name = "libopus-prebuilt-sys"
 version = "0.1.0"
-source = "git+https://github.com/andrewtheguy/libopus-prebuilt?tag=v1.6.1-20260906161304-8dd83e8#8dd83e865b4913df74b66199236346f9bfab2912"
+source = "git+https://github.com/andrewtheguy/libopus-prebuilt?tag=v1.6.1-20261106175320-d681e6f#d681e6f7eb4d00940037b612499bd30488c99bf8"
 
 [[package]]
 name = "opus-prebuilt"
 version = "0.1.0"
-source = "git+https://github.com/andrewtheguy/libopus-prebuilt?tag=v1.6.1-20260906161304-8dd83e8#8dd83e865b4913df74b66199236346f9bfab2912"
+source = "git+https://github.com/andrewtheguy/libopus-prebuilt?tag=v1.6.1-20261106175320-d681e6f#d681e6f7eb4d00940037b612499bd30488c99bf8"
 dependencies = [
  "libopus-prebuilt-sys",
 ]
@@ -35,7 +35,7 @@ dependencies = [
 
 [[package]]
 name = "sound-opus"
-version = "0.0.8"
+version = "0.0.9"
 dependencies = [
  "opus-prebuilt",
  "thiserror",
